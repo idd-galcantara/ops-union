@@ -2,7 +2,7 @@
   "name": "ops-union",
   "desktopName": "ops-union",
   "private": true,
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Local, read-only Kubernetes workload viewer.",
   "homepage": "https://github.com/idd-galcantara/ops-union",
   "author": {
