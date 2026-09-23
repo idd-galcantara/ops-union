@@ -128,6 +128,105 @@ nvm install 25.2.1
 nvm use 25.2.1
 ```
 
+## Ambiente Kubernetes local
+
+O repositorio inclui um ambiente de desenvolvimento com dois clusters kind independentes. Ele usa
+`~/.kube/config`, preserva as demais entradas do kubeconfig e cria os contextos `kind-ops-dev` e
+`kind-ops-staging`, que o ops-union descobre pelo fluxo normal de leitura do kubeconfig.
+
+### Pre-requisitos
+
+- Docker em execucao e acessivel pelo usuario atual.
+- `kubectl` e uma versao recente do `kind` compativel com a imagem Kubernetes v1.37.0.
+- Em Linux, para dois clusters kind, `fs.inotify.max_user_instances` deve ser pelo menos `256`.
+  Se necessario, ajuste uma vez antes do setup: `sudo sysctl -w fs.inotify.max_user_instances=256`.
+- Para executar o ops-union a partir do codigo-fonte, Node.js e npm (veja [Requisitos](#requisitos)).
+  O aplicativo Linux ja instalado nao precisa dessas ferramentas.
+
+### Windows
+
+O aplicativo Ops Union funciona no Windows e usa o kubeconfig padrao em
+`%USERPROFILE%\.kube\config`. Os scripts deste repositorio sao Bash; a forma recomendada de
+executa-los no Windows e usar WSL2 com Docker Desktop.
+
+1. Instale Docker Desktop, habilite a integracao com WSL2 e instale `kubectl` e `kind` na
+  distribuicao Ubuntu do WSL.
+2. Abra a pasta do repositorio no WSL. Por exemplo, se ela estiver no disco C:
+
+  ```bash
+  cd /mnt/c/caminho/para/ops-union
+  ```
+
+3. Use o kubeconfig do Windows ao criar os clusters, para que o Ops Union instalado no Windows
+  enxergue os contextos. Substitua `SEU_USUARIO` pelo seu usuario do Windows:
+
+  ```bash
+  export OPS_UNION_KUBECONFIG="/mnt/c/Users/SEU_USUARIO/.kube/config"
+  ./scripts/dev-cluster.sh
+  ./scripts/dev-cluster-status.sh
+  ```
+
+  O script preserva as demais entradas desse arquivo e adiciona `kind-ops-dev` e
+  `kind-ops-staging`.
+4. Abra o Ops Union no Windows e selecione `C:\Users\SEU_USUARIO\.kube\config` quando solicitado.
+
+O setup tambem pode ser executado em Git Bash, desde que Docker Desktop, `kubectl` e `kind`
+estejam disponiveis no `PATH`. PowerShell e `cmd.exe` nao executam diretamente os arquivos `.sh`.
+O limite Linux de `fs.inotify.max_user_instances` nao se aplica ao Windows.
+
+### Criar e verificar os clusters
+
+Na raiz do repositorio:
+
+```bash
+./scripts/dev-cluster.sh
+./scripts/dev-cluster-status.sh
+```
+
+O setup cria dois nos por cluster (control-plane e worker), namespaces `production`, `staging`,
+`monitoring` e `payments` em `ops-dev`, e `staging`, `monitoring` e `payments` em `ops-staging`.
+Deployments leves de log continuo simulam frontend, API e processamento de pagamentos, com replicas
+e quantidades diferentes entre clusters.
+
+Os comandos equivalentes do Kubernetes tambem podem ser executados diretamente:
+
+```bash
+kubectl config get-contexts
+kubectl --context kind-ops-dev get nodes
+kubectl --context kind-ops-dev get pods --all-namespaces
+kubectl --context kind-ops-staging get nodes
+kubectl --context kind-ops-staging get pods --all-namespaces
+```
+
+O setup instala o metrics-server v0.9.0 em cada cluster. Como os certificados locais dos kubelets
+kind nao sao emitidos por uma CA confiavel, ele habilita `--kubelet-insecure-tls` **somente nesses
+clusters locais**. O script aguarda a inicializacao, mas avisa e continua se as metricas ainda nao
+estiverem prontas; tente `kubectl --context kind-ops-dev top pods --all-namespaces` novamente apos
+alguns minutos. Sem metrics-server disponivel, o ops-union continua listando e inspecionando pods.
+
+### Usar os clusters no ops-union
+
+Abra o aplicativo Linux instalado pelo menu de aplicativos ou, para uma instalacao `.deb`,
+execute `ops-union`. Confirme que o kubeconfig selecionado no painel do aplicativo e
+`~/.kube/config`; se o aplicativo lembrar outro arquivo, use **Selecionar kubeconfig** para
+escolher esse caminho. Se iniciar pelo terminal com `KUBECONFIG` apontando para outro arquivo e
+nao quiser usa-lo, execute `env -u KUBECONFIG ops-union`.
+
+Executar a versao web a partir do codigo-fonte e opcional: use `npm install` e `npm run dev` e
+abra <http://localhost:5173>. Em qualquer versao, selecione `kind-ops-dev` e `kind-ops-staging`,
+escolha os namespaces existentes nos clusters selecionados e adicione os alvos para consultar os
+pods. Abra um pod para conferir o describe e as metricas, e use o visualizador de logs para
+observar as mensagens periodicas dos containers.
+
+### Remover os clusters
+
+```bash
+./scripts/delete-dev-cluster.sh
+```
+
+Isso remove apenas os clusters kind com os nomes `ops-dev` e `ops-staging`; outros clusters e
+contextos do usuario nao sao alvo do script.
+
 ## Comecando
 
 ### 1. Instalar dependencias
