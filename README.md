@@ -22,6 +22,8 @@ Cada resultado preserva sua origem. Assim, pods com o mesmo nome em clusters dif
 - Agrupa a tabela por namespace, cluster ou em modo plano.
 - Filtra por pod, cluster, namespace, status, node ou container.
 - Abre um painel de detalhes com informacoes equivalentes a `kubectl describe`.
+- Mantem os diagnosticos avancados de terminacao e reinicio recolhidos por padrao, usando o estado
+  atual/ultimo estado dos containers e eventos disponiveis do pod.
 - Consulta CPU e memoria por container quando o `metrics-server` esta disponivel.
 - Transmite logs de containers por WebSocket, com modos Live e History, follow, pausa, filtro e
   auto-scroll.
@@ -66,7 +68,7 @@ flowchart LR
 ## Downloads
 
 A release publicada referenciada por estes links e a **v0.5.1**. A implementacao da especificacao
-v1.3.2 esta no checkout atual; esta auditoria nao publica uma nova release. Os
+v1.5.1 esta no checkout atual; esta alteracao nao publica uma nova release. Os
 instaladores e pacotes estao disponiveis na pagina de
 [releases do GitHub](https://github.com/idd-galcantara/ops-union/releases/tag/v0.5.1).
 

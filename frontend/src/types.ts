@@ -279,10 +279,24 @@ export interface ContainerDetail {
   restartCount: number;
   state: string;
   reason?: string;
+  message?: string;
+  exitCode?: number;
+  signal?: number;
+  finishedAt?: string;
+  lastState?: ContainerStateDetail;
   requests?: Record<string, string>;
   limits?: Record<string, string>;
   /** True for native sidecars (init containers with restartPolicy: Always). */
   sidecar: boolean;
+}
+
+export interface ContainerStateDetail {
+  state: string;
+  reason?: string;
+  message?: string;
+  exitCode?: number;
+  signal?: number;
+  finishedAt?: string;
 }
 
 export interface PodEvent {
@@ -291,6 +305,19 @@ export interface PodEvent {
   message: string;
   count: number;
   lastSeen?: string;
+}
+
+export interface PodTerminationHistoryEntry {
+  source: 'container' | 'event';
+  timestamp?: string;
+  container?: string;
+  state?: string;
+  reason?: string;
+  message?: string;
+  exitCode?: number;
+  signal?: number;
+  type?: string;
+  count?: number;
 }
 
 export interface PodDescribe {
@@ -308,6 +335,7 @@ export interface PodDescribe {
   conditions: { type: string; status: string; reason?: string; message?: string }[];
   containers: ContainerDetail[];
   events: PodEvent[];
+  terminationHistory: PodTerminationHistoryEntry[];
   eventsError?: string;
 }
 

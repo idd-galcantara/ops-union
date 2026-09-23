@@ -12,10 +12,24 @@ export interface ContainerDetail {
   state: string;
   /** Reason attached to the state, when the cluster provides one. */
   reason?: string;
+  message?: string;
+  exitCode?: number;
+  signal?: number;
+  finishedAt?: string;
+  lastState?: ContainerStateDetail;
   requests?: Record<string, string>;
   limits?: Record<string, string>;
   /** True for native sidecars (init containers with restartPolicy: Always). */
   sidecar: boolean;
+}
+
+export interface ContainerStateDetail {
+  state: string;
+  reason?: string;
+  message?: string;
+  exitCode?: number;
+  signal?: number;
+  finishedAt?: string;
 }
 
 /** Normalized event, ordered newest first. */
@@ -25,6 +39,19 @@ export interface PodEvent {
   message: string;
   count: number;
   lastSeen?: string;
+}
+
+export interface PodTerminationHistoryEntry {
+  source: 'container' | 'event';
+  timestamp?: string;
+  container?: string;
+  state?: string;
+  reason?: string;
+  message?: string;
+  exitCode?: number;
+  signal?: number;
+  type?: string;
+  count?: number;
 }
 
 export interface PodDescribe {
@@ -42,6 +69,7 @@ export interface PodDescribe {
   conditions: { type: string; status: string; reason?: string; message?: string }[];
   containers: ContainerDetail[];
   events: PodEvent[];
+  terminationHistory: PodTerminationHistoryEntry[];
   /** Set when events could not be read; the rest of the describe still returns. */
   eventsError?: string;
 }
@@ -66,19 +94,41 @@ function sidecarNames(pod: V1Pod): Set<string> {
   );
 }
 
-function describeState(status?: {
-  state?: { running?: unknown; waiting?: { reason?: string }; terminated?: { reason?: string } };
-}): { state: string; reason?: string } {
-  if (status?.state?.waiting) return { state: 'waiting', reason: status.state.waiting.reason };
-  if (status?.state?.terminated) {
-    return { state: 'terminated', reason: status.state.terminated.reason };
+function normalizeState(state?: {
+  running?: { startedAt?: unknown };
+  waiting?: { reason?: string; message?: string };
+  terminated?: {
+    reason?: string;
+    message?: string;
+    exitCode?: number;
+    signal?: number;
+    finishedAt?: unknown;
+  };
+}): ContainerStateDetail | undefined {
+  if (!state) return undefined;
+  if (state.waiting) {
+    return {
+      state: 'waiting',
+      reason: state.waiting.reason,
+      message: state.waiting.message,
+    };
   }
-  if (status?.state?.running) return { state: 'running' };
+  if (state.terminated) {
+    return {
+      state: 'terminated',
+      reason: state.terminated.reason,
+      message: state.terminated.message,
+      exitCode: state.terminated.exitCode,
+      signal: state.terminated.signal,
+      finishedAt: state.terminated.finishedAt?.toString(),
+    };
+  }
+  if (state.running) return { state: 'running' };
   return { state: 'unknown' };
 }
 
 /** Builds the container list, including native sidecars, with requests/limits. */
-function buildContainers(pod: V1Pod): ContainerDetail[] {
+export function buildContainers(pod: V1Pod): ContainerDetail[] {
   const sidecars = sidecarNames(pod);
   const statusByName = new Map(
     [...(pod.status?.initContainerStatuses ?? []), ...(pod.status?.containerStatuses ?? [])].map(
@@ -93,14 +143,14 @@ function buildContainers(pod: V1Pod): ContainerDetail[] {
 
   return specs.map((spec) => {
     const status = statusByName.get(spec.name);
-    const { state, reason } = describeState(status);
+    const currentState = normalizeState(status?.state) ?? { state: 'unknown' };
     return {
       name: spec.name,
       image: spec.image ?? '',
       ready: status?.ready ?? false,
       restartCount: status?.restartCount ?? 0,
-      state,
-      reason,
+      ...currentState,
+      lastState: normalizeState(status?.lastState),
       requests: spec.resources?.requests as Record<string, string> | undefined,
       limits: spec.resources?.limits as Record<string, string> | undefined,
       sidecar: sidecars.has(spec.name),
@@ -118,6 +168,62 @@ function buildEvents(events: CoreV1Event[]): PodEvent[] {
       lastSeen: (e.lastTimestamp ?? e.eventTime ?? e.firstTimestamp)?.toString(),
     }))
     .sort((a, b) => (b.lastSeen ?? '').localeCompare(a.lastSeen ?? ''));
+}
+
+function timestampRank(timestamp?: string): number {
+  if (!timestamp) return Number.NEGATIVE_INFINITY;
+  const value = Date.parse(timestamp);
+  return Number.isNaN(value) ? Number.NEGATIVE_INFINITY : value;
+}
+
+export function buildTerminationHistory(
+  containers: ContainerDetail[],
+  events: PodEvent[],
+): PodTerminationHistoryEntry[] {
+  const history: PodTerminationHistoryEntry[] = [];
+
+  for (const container of containers) {
+    if (container.state === 'terminated') {
+      history.push({
+        source: 'container',
+        timestamp: container.finishedAt,
+        container: container.name,
+        state: container.state,
+        reason: container.reason,
+        message: container.message,
+        exitCode: container.exitCode,
+        signal: container.signal,
+      });
+    }
+    if (container.lastState?.state === 'terminated') {
+      history.push({
+        source: 'container',
+        timestamp: container.lastState.finishedAt,
+        container: container.name,
+        state: container.lastState.state,
+        reason: container.lastState.reason,
+        message: container.lastState.message,
+        exitCode: container.lastState.exitCode,
+        signal: container.lastState.signal,
+      });
+    }
+  }
+
+  history.push(
+    ...events.map((event) => ({
+      source: 'event' as const,
+      timestamp: event.lastSeen,
+      type: event.type,
+      reason: event.reason,
+      message: event.message,
+      count: event.count,
+    })),
+  );
+
+  return history
+    .map((entry, index) => ({ entry, index }))
+    .sort((a, b) => timestampRank(b.entry.timestamp) - timestampRank(a.entry.timestamp) || a.index - b.index)
+    .map(({ entry }) => entry);
 }
 
 /**
@@ -146,6 +252,8 @@ export async function getPodDescribe(
     eventsError = safeErrorMessage(err);
   }
 
+  const containers = buildContainers(pod);
+
   return {
     cluster,
     namespace,
@@ -164,8 +272,9 @@ export async function getPodDescribe(
       reason: c.reason,
       message: c.message,
     })),
-    containers: buildContainers(pod),
+    containers,
     events,
+    terminationHistory: buildTerminationHistory(containers, events),
     eventsError,
   };
 }

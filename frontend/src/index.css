@@ -1822,6 +1822,89 @@ button {
   overflow-wrap: anywhere;
 }
 
+.diagnostics-section {
+  padding-top: 14px;
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.diagnostics-section summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.diagnostics-count {
+  color: var(--muted);
+  font: 9px var(--mono);
+}
+
+.diagnostics-body {
+  padding-top: 10px;
+}
+
+.termination-history {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.termination-history li {
+  padding: 8px 9px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--info);
+  border-radius: 4px;
+}
+
+.termination-history li.is-warning {
+  border-left-color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.termination-entry-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.termination-entry-top strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+}
+
+.termination-entry-top span,
+.termination-entry-meta {
+  color: var(--muted);
+  font: 9px var(--mono);
+}
+
+.termination-entry-top span {
+  flex: 0 0 auto;
+  text-align: right;
+}
+
+.termination-entry-meta {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.termination-history p {
+  margin: 5px 0 0;
+  color: var(--text-soft);
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
 .kv-list li {
   display: flex;
   gap: 8px;
@@ -4150,6 +4233,8 @@ button {
 .app-shell[data-theme='dark'] .event-message,
 .app-shell[data-theme='dark'] .kv-value,
 .app-shell[data-theme='dark'] .container-meta,
+.app-shell[data-theme='dark'] .termination-entry-meta,
+.app-shell[data-theme='dark'] .termination-history p,
 .app-shell[data-theme='dark'] .target-error-message,
 .app-shell[data-theme='dark'] .preset-text em {
   color: var(--text-soft);

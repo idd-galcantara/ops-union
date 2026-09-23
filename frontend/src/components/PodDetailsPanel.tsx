@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Activity, FileText, Info, ScrollText, X } from 'lucide-react';
 import { fetchPodDescribe, fetchPodMetrics } from '../api';
 import { formatCpu, formatMemory, formatTimestamp, usageRatio } from '../k8sUnits';
+import { terminationEntryDetails, terminationEntryTitle } from '../terminationHistory';
 import { ErrorState, LoadingState } from './Feedback';
 import { LogViewer } from './LogViewer';
 import type { ContainerDetail, LogSource, PodDescribe, PodMetricsResult, PodRef } from '../types';
@@ -265,6 +266,40 @@ function DescribeTab({
           ))}
         </ul>
       </DetailSection>
+
+      <details className="diagnostics-section">
+        <summary>
+          <span>Advanced diagnostics</span>
+          <span className="diagnostics-count">{describe.terminationHistory.length}</span>
+        </summary>
+        <div className="diagnostics-body">
+          <p className="details-note">
+            Current pod state and recent events only; this is not durable history.
+          </p>
+          {describe.eventsError && (
+            <p className="details-note">Event history is limited: {describe.eventsError}</p>
+          )}
+          {describe.terminationHistory.length === 0 ? (
+            <p className="details-note">No termination or restart evidence is available.</p>
+          ) : (
+            <ol className="termination-history">
+              {describe.terminationHistory.map((entry, index) => {
+                const details = terminationEntryDetails(entry);
+                return (
+                  <li key={`${entry.source}-${entry.timestamp ?? 'unknown'}-${index}`} className={entry.type === 'Warning' ? 'is-warning' : ''}>
+                    <div className="termination-entry-top">
+                      <strong>{terminationEntryTitle(entry)}</strong>
+                      <span>{formatTimestamp(entry.timestamp)}</span>
+                    </div>
+                    {details.length > 0 && <div className="termination-entry-meta">{details.join(' · ')}</div>}
+                    {entry.message && <p>{entry.message}</p>}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+        </div>
+      </details>
 
       <DetailSection title={`Labels (${Object.keys(describe.labels).length})`}>
         <KeyValueList entries={describe.labels} />

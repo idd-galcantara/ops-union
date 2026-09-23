@@ -1,7 +1,7 @@
 # ops-union - Definicao tecnica do Electron
 
 > Documento de referência da arquitetura e do comportamento de comunicação do
-> ops-union. O checkout atual inclui a implementacao da especificacao v1.3.2;
+> ops-union. O checkout atual inclui a implementacao da especificacao v1.5.1;
 > isso nao representa uma release publicada.
 
 ## 1. Objetivo e escopo
@@ -450,8 +450,16 @@ Para um pod, o backend faz:
 1. `readNamespacedPod({ name, namespace })`;
 2. `listNamespacedEvent({ namespace, fieldSelector: "involvedObject.name=<pod>" })`;
 3. normalização de status, node, IP, QoS, service account, data de criação,
-   labels, annotations, conditions e containers;
+  labels, annotations, conditions e containers, incluindo estado atual, ultimo
+  estado e metadados de terminacao quando fornecidos;
 4. ordenação dos eventos do mais novo para o mais antigo.
+
+O describe tambem inclui `terminationHistory`, uma linha do tempo normalizada
+com estados terminados atuais/anteriores dos containers e eventos do pod,
+ordenada do mais novo para o mais antigo. Entradas sem timestamp ficam depois
+das entradas datadas. Essa linha do tempo representa somente os dados presentes
+no objeto atual do pod e nos eventos retornados pela consulta; nao e um historico
+duravel de varios dias.
 
 Se a leitura de eventos falhar por falta de permissão, o describe principal
 continua e a resposta inclui `eventsError`.
