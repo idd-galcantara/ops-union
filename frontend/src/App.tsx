@@ -143,6 +143,7 @@ export default function App() {
   const presets = useOpsFlowStore((s) => s.presets);
   const quickPresets = getQuickPresets(presets);
   const targetErrors = useOpsFlowStore((s) => s.targetErrors);
+  const configurationRevision = useOpsFlowStore((s) => s.configurationRevision);
   const podsLoading = useOpsFlowStore((s) => s.podsLoading);
   const podsError = useOpsFlowStore((s) => s.podsError);
   const explicitQueryRevision = useOpsFlowStore((s) => s.explicitQueryRevision);
@@ -241,7 +242,7 @@ export default function App() {
   }, [hydratePresets]);
 
   useLayoutEffect(() => {
-    if (explicitQueryRevision === 0) return;
+    if (explicitQueryRevision === 0 && configurationRevision === 0) return;
     setSelected(null);
     setSelectedPodKeys(new Set());
     setSelectedLogPods([]);
@@ -251,7 +252,7 @@ export default function App() {
     setLogSelectionError(null);
     setDetailsInitialTab('describe');
     setFilter('');
-  }, [explicitQueryRevision, setFilter]);
+  }, [configurationRevision, explicitQueryRevision, setFilter]);
 
   useEffect(() => {
     if (!logModal || !lastUpdatedAt || logModal.inventory.snapshotAt === lastUpdatedAt) return;

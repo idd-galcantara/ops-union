@@ -114,3 +114,90 @@ test('explicit pod queries signal workspace reset while silent refresh does not'
     useOpsFlowStore.setState(original);
   }
 });
+
+test('resetKubeconfig clears kubeconfig-derived state before reloading contexts', async () => {
+  const original = useOpsFlowStore.getState();
+  const previousWindow = (globalThis as { window?: unknown }).window;
+  const originalFetch = globalThis.fetch;
+  const requestedUrls: string[] = [];
+  const pod = {
+    cluster: 'cluster-selected',
+    namespace: 'namespace-selected',
+    name: 'pod',
+    status: 'Running',
+    ready: '1/1',
+    restarts: 0,
+    node: 'node',
+    ageSeconds: 10,
+    containers: ['app'],
+    application: { key: 'pod:pod', name: 'pod', source: 'pod' as const },
+  };
+
+  useOpsFlowStore.setState({
+    kubeconfigStatus: { available: true, source: 'selected', contextCount: 1 },
+    contexts: [{ name: 'context-selected', cluster: 'cluster-selected' }],
+    contextsError: 'stale context error',
+    targets: [{ cluster: 'cluster-selected', namespace: 'namespace-selected' }],
+    namespaces: [{ name: 'namespace-selected', clusters: ['cluster-selected'] }],
+    namespacesFor: ['cluster-selected'],
+    namespacesError: 'stale namespace error',
+    pods: [pod],
+    targetErrors: [{
+      target: { cluster: 'cluster-selected', namespace: 'namespace-selected' },
+      message: 'stale pod error',
+    }],
+    podsLoading: true,
+    podsError: 'stale pods error',
+    refreshing: true,
+    hasQueried: true,
+    lastUpdatedAt: 1,
+    activePresetId: 'preset',
+    activePresetDirty: true,
+    configurationRevision: 4,
+  });
+  (globalThis as { window?: unknown }).window = {
+    opsFlowDesktop: {
+      resetKubeconfig: async () => ({
+        status: { available: true, source: 'environment', contextCount: 1 },
+      }),
+    },
+  };
+  globalThis.fetch = async (input) => {
+    requestedUrls.push(String(input));
+    return new Response(JSON.stringify({
+      contexts: [{ name: 'context-environment', cluster: 'cluster-environment' }],
+    }), { status: 200 });
+  };
+
+  try {
+    await useOpsFlowStore.getState().resetKubeconfig();
+    const state = useOpsFlowStore.getState();
+    assert.deepEqual(state.kubeconfigStatus, {
+      available: true,
+      source: 'environment',
+      contextCount: 1,
+    });
+    assert.deepEqual(state.contexts, [{ name: 'context-environment', cluster: 'cluster-environment' }]);
+    assert.equal(state.contextsError, undefined);
+    assert.deepEqual(state.targets, []);
+    assert.deepEqual(state.namespaces, []);
+    assert.deepEqual(state.namespacesFor, []);
+    assert.equal(state.namespacesError, undefined);
+    assert.deepEqual(state.pods, []);
+    assert.deepEqual(state.targetErrors, []);
+    assert.equal(state.podsError, undefined);
+    assert.equal(state.podsLoading, false);
+    assert.equal(state.refreshing, false);
+    assert.equal(state.hasQueried, false);
+    assert.equal(state.lastUpdatedAt, undefined);
+    assert.equal(state.activePresetId, null);
+    assert.equal(state.activePresetDirty, false);
+    assert.equal(state.configurationRevision, 5);
+    assert.deepEqual(requestedUrls, ['/api/contexts']);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousWindow === undefined) delete (globalThis as { window?: unknown }).window;
+    else (globalThis as { window?: unknown }).window = previousWindow;
+    useOpsFlowStore.setState(original);
+  }
+});

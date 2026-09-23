@@ -76,6 +76,7 @@ interface OpsFlowState {
   loadContexts: () => Promise<void>;
   loadKubeconfigStatus: () => Promise<void>;
   selectKubeconfig: () => Promise<void>;
+  resetKubeconfig: () => Promise<void>;
   loadNamespaces: (clusters: string[]) => Promise<void>;
   addTarget: (target: Target) => void;
   removeTarget: (target: Target) => void;
@@ -93,7 +94,34 @@ interface OpsFlowState {
   clearPresets: () => void;
 }
 
-export const useOpsFlowStore = create<OpsFlowState>((set, get) => ({
+export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
+  const applyKubeconfigChange = (kubeconfigStatus?: KubeConfigStatus) => {
+    namespacesRequestId += 1;
+    podsRequestId += 1;
+    set((state) => ({
+      kubeconfigStatus: kubeconfigStatus ?? state.kubeconfigStatus,
+      kubeconfigStatusLoading: false,
+      contexts: [],
+      contextsError: undefined,
+      targets: [],
+      namespaces: [],
+      namespacesFor: [],
+      namespacesError: undefined,
+      namespacesLoading: false,
+      pods: [],
+      activePresetId: null,
+      activePresetDirty: false,
+      targetErrors: [],
+      podsLoading: false,
+      refreshing: false,
+      hasQueried: false,
+      podsError: undefined,
+      lastUpdatedAt: undefined,
+      configurationRevision: state.configurationRevision + 1,
+    }));
+  };
+
+  return {
   contexts: [],
   contextsLoading: false,
   kubeconfigStatus: null,
@@ -162,34 +190,42 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => ({
         return;
       }
 
-      namespacesRequestId += 1;
-      podsRequestId += 1;
-      set((state) => ({
-        kubeconfigStatus: result.status ?? state.kubeconfigStatus,
-        kubeconfigStatusLoading: false,
-        kubeconfigStatusError: result.error,
-        contextsError: undefined,
-        targets: [],
-        namespaces: [],
-        namespacesFor: [],
-        namespacesError: undefined,
-        namespacesLoading: false,
-        pods: [],
-        activePresetId: null,
-        activePresetDirty: false,
-        targetErrors: [],
-        podsLoading: false,
-        refreshing: false,
-        hasQueried: false,
-        lastUpdatedAt: undefined,
-        configurationRevision: state.configurationRevision + 1,
-      }));
+      set({ kubeconfigStatusError: result.error });
+      applyKubeconfigChange(result.status);
       await get().loadContexts();
     } catch (err) {
       set({
         kubeconfigStatusLoading: false,
         kubeconfigStatusError:
           err instanceof Error ? err.message : 'Failed to select kubeconfig.',
+      });
+    }
+  },
+
+  resetKubeconfig: async () => {
+    const desktop = window.opsFlowDesktop;
+    if (!desktop) {
+      set({ kubeconfigStatusError: 'Kubeconfig reset is available in the desktop app.' });
+      return;
+    }
+    if (get().kubeconfigStatus?.source !== 'selected' || get().kubeconfigStatusLoading) return;
+
+    set({ kubeconfigStatusLoading: true, kubeconfigStatusError: undefined });
+    try {
+      const result = await desktop.resetKubeconfig();
+      if (result.error && !result.status) {
+        set({ kubeconfigStatusLoading: false, kubeconfigStatusError: result.error });
+        return;
+      }
+
+      set({ kubeconfigStatusError: result.error });
+      applyKubeconfigChange(result.status);
+      await get().loadContexts();
+    } catch (err) {
+      set({
+        kubeconfigStatusLoading: false,
+        kubeconfigStatusError:
+          err instanceof Error ? err.message : 'Failed to reset kubeconfig.',
       });
     }
   },
@@ -441,4 +477,5 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => ({
     savePresets([]);
     set({ presets: [], activePresetId: null, activePresetDirty: false });
   },
-}));
+  };
+});

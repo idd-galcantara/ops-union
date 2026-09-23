@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -198,5 +198,51 @@ test('getKubeConfigStatus reports safe metadata for the selected config', () => 
     else process.env.KUBECONFIG = previousEnvironment;
     resetKubeConfigCache();
     rmSync(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test('reloadKubeConfig with null selects environment and then the platform default', () => {
+  const environment = temporaryConfig(kubeConfigYaml('context-env-reset', 'cluster-env-reset'));
+  const selected = temporaryConfig(kubeConfigYaml('context-selected-reset', 'cluster-selected-reset'));
+  const defaultRoot = mkdtempSync(path.join(tmpdir(), 'ops-union-default-kubeconfig-'));
+  const defaultDirectory = path.join(defaultRoot, '.kube');
+  const defaultFile = path.join(defaultDirectory, 'config');
+  mkdirSync(defaultDirectory, { recursive: true });
+  writeFileSync(defaultFile, kubeConfigYaml('context-default-reset', 'cluster-default-reset'), 'utf8');
+
+  const previousEnvironment = process.env.KUBECONFIG;
+  const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
+  process.env.KUBECONFIG = environment.file;
+  if (process.platform === 'win32') process.env.USERPROFILE = defaultRoot;
+  else process.env.HOME = defaultRoot;
+
+  try {
+    resetKubeConfigCache();
+    reloadKubeConfig(selected.file);
+    const selectedClient = coreClientForContext('context-selected-reset');
+
+    reloadKubeConfig(null);
+    assert.deepEqual(listContexts(), [
+      { name: 'context-env-reset', cluster: 'cluster-env-reset', namespace: undefined },
+    ]);
+    assert.notEqual(coreClientForContext('context-env-reset'), selectedClient);
+
+    delete process.env.KUBECONFIG;
+    reloadKubeConfig(null);
+    assert.deepEqual(listContexts(), [
+      { name: 'context-default-reset', cluster: 'cluster-default-reset', namespace: undefined },
+    ]);
+  } finally {
+    if (previousEnvironment === undefined) delete process.env.KUBECONFIG;
+    else process.env.KUBECONFIG = previousEnvironment;
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
+    resetKubeConfigCache();
+    rmSync(environment.directory, { recursive: true, force: true });
+    rmSync(selected.directory, { recursive: true, force: true });
+    rmSync(defaultRoot, { recursive: true, force: true });
   }
 });

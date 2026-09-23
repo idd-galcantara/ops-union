@@ -1,4 +1,4 @@
-import { Check, CircleAlert, FolderOpen, Loader } from 'lucide-react';
+import { Check, CircleAlert, FolderOpen, Loader, RotateCcw } from 'lucide-react';
 import { useOpsFlowStore } from '../store';
 
 function sourceLabel(source: 'environment' | 'selected' | 'default'): string {
@@ -12,7 +12,9 @@ export function KubeconfigSetup() {
   const loading = useOpsFlowStore((state) => state.kubeconfigStatusLoading);
   const error = useOpsFlowStore((state) => state.kubeconfigStatusError);
   const selectKubeconfig = useOpsFlowStore((state) => state.selectKubeconfig);
+  const resetKubeconfig = useOpsFlowStore((state) => state.resetKubeconfig);
   const canSelect = Boolean(window.opsFlowDesktop);
+  const canReset = canSelect && status?.source === 'selected';
 
   if (loading && !status) {
     return (
@@ -47,23 +49,39 @@ export function KubeconfigSetup() {
         <span>
           {status?.available
             ? `${sourceLabel(status.source)}${status.contextCount === undefined ? '' : ` · ${status.contextCount} contexts`}`
-            : canSelect
+            : status?.source === 'selected'
+              ? 'The selected kubeconfig is unavailable. Reset to normal discovery.'
+              : canSelect
               ? 'Choose a file to load its contexts.'
               : 'Set KUBECONFIG or place a config in the default location.'}
         </span>
         {error && <small role="alert">{error}</small>}
       </div>
       {canSelect && (
-        <button
-          type="button"
-          className="icon-button subtle"
-          title="Select kubeconfig file"
-          aria-label="Select kubeconfig file"
-          onClick={() => void selectKubeconfig()}
-          disabled={loading}
-        >
-          {loading ? <Loader size={14} className="spinning" /> : <FolderOpen size={14} />}
-        </button>
+        <>
+          <button
+            type="button"
+            className="icon-button subtle"
+            title="Select kubeconfig file"
+            aria-label="Select kubeconfig file"
+            onClick={() => void selectKubeconfig()}
+            disabled={loading}
+          >
+            {loading ? <Loader size={14} className="spinning" /> : <FolderOpen size={14} />}
+          </button>
+          {canReset && (
+            <button
+              type="button"
+              className="icon-button subtle"
+              title="Reset to normal kubeconfig discovery"
+              aria-label="Reset to normal kubeconfig discovery"
+              onClick={() => void resetKubeconfig()}
+              disabled={loading}
+            >
+              {loading ? <Loader size={14} className="spinning" /> : <RotateCcw size={14} />}
+            </button>
+          )}
+        </>
       )}
     </section>
   );

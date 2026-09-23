@@ -17,6 +17,11 @@ interface SelectionResult {
   error?: string;
 }
 
+interface ResetResult {
+  status?: KubeConfigStatus;
+  error?: string;
+}
+
 interface StoredPreset {
   id: string;
   name: string;
@@ -124,6 +129,20 @@ async function saveSelectedKubeconfigPath(selectedPath: string): Promise<void> {
   await writePreferences({ selectedKubeconfigPath: selectedPath });
 }
 
+async function clearSelectedKubeconfigPath(): Promise<void> {
+  let preferences: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(await readFile(preferencesFile(), 'utf8'));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      preferences = { ...(parsed as Record<string, unknown>) };
+    }
+  } catch {
+    preferences = {};
+  }
+  delete preferences.selectedKubeconfigPath;
+  await writeFile(preferencesFile(), `${JSON.stringify(preferences, null, 2)}\n`, 'utf8');
+}
+
 async function availablePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const probe = createServer();
@@ -213,10 +232,6 @@ async function selectKubeconfig(): Promise<SelectionResult> {
   const selection = await dialog.showOpenDialog(mainWindow, {
     title: 'Select kubeconfig',
     properties: ['openFile'],
-    filters: [
-      { name: 'Kubeconfig', extensions: ['yaml', 'yml', 'config'] },
-      { name: 'All files', extensions: ['*'] },
-    ],
   });
   if (selection.canceled || selection.filePaths.length === 0) return { cancelled: true };
 
@@ -247,6 +262,33 @@ async function selectKubeconfig(): Promise<SelectionResult> {
   }
 }
 
+async function resetKubeconfig(): Promise<ResetResult> {
+  if (backendPort === null || !internalToken) {
+    return { error: 'The desktop backend is not ready.' };
+  }
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${backendPort}/api/kubeconfig/reset`, {
+      method: 'POST',
+      headers: { 'X-ops-union-Token': internalToken },
+    });
+    if (!response.ok) return { error: 'Could not reset the kubeconfig.' };
+
+    const status = (await response.json()) as KubeConfigStatus;
+    try {
+      await clearSelectedKubeconfigPath();
+      return { status };
+    } catch {
+      return {
+        status,
+        error: 'Kubeconfig reset for this session, but the preference could not be updated.',
+      };
+    }
+  } catch {
+    return { error: 'Could not connect to the local backend.' };
+  }
+}
+
 const hasLock = app.requestSingleInstanceLock();
 if (!hasLock) {
   app.quit();
@@ -260,6 +302,7 @@ if (!hasLock) {
   process.once('SIGINT', () => void shutdownApplication());
   process.once('SIGTERM', () => void shutdownApplication());
   ipcMain.handle('select-kubeconfig', selectKubeconfig);
+  ipcMain.handle('reset-kubeconfig', resetKubeconfig);
   ipcMain.handle('load-theme', readTheme);
   ipcMain.handle('save-theme', (_event, theme: unknown) => saveTheme(theme));
   ipcMain.handle('load-presets', readPresets);
