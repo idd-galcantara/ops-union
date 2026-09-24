@@ -1650,6 +1650,42 @@ button {
   margin: 0 0 18px;
 }
 
+.workload-section {
+  padding: 0 0 14px;
+  margin: 0 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.workload-section h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  letter-spacing: -0.2px;
+}
+
+.workload-identity {
+  display: block;
+  margin-bottom: 8px;
+  font: 11px var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.workload-line {
+  display: flex;
+  gap: 8px;
+  margin: 5px 0 0;
+  color: var(--ink);
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.workload-line span {
+  flex: 0 0 58px;
+  color: var(--muted);
+  text-transform: uppercase;
+  font: 9px var(--mono);
+}
+
 .detail-item dt {
   color: #929baa;
   font: 9px var(--mono);

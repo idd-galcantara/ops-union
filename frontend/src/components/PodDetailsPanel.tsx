@@ -3,6 +3,13 @@ import { Activity, FileText, Info, ScrollText, X } from 'lucide-react';
 import { fetchPodDescribe, fetchPodMetrics } from '../api';
 import { formatCpu, formatMemory, formatTimestamp, usageRatio } from '../k8sUnits';
 import { terminationEntryDetails, terminationEntryTitle } from '../terminationHistory';
+import {
+  formatHpaSummary,
+  formatReplicaSummary,
+  formatWorkloadIdentity,
+  formatWorkloadMetric,
+  formatWorkloadNotes,
+} from '../workloadPresentation';
 import { ErrorState, LoadingState } from './Feedback';
 import { LogViewer } from './LogViewer';
 import type { ContainerDetail, LogSource, PodDescribe, PodMetricsResult, PodRef } from '../types';
@@ -215,6 +222,8 @@ function DescribeTab({
 
   return (
     <div className="describe-body">
+      <WorkloadSection workload={describe.workload} />
+
       <dl className="detail-grid">
         <Detail label="Status" value={describe.status} />
         <Detail label="Node" value={describe.node || '—'} mono />
@@ -305,6 +314,24 @@ function DescribeTab({
         <KeyValueList entries={describe.labels} />
       </DetailSection>
     </div>
+  );
+}
+
+function WorkloadSection({ workload }: { workload: PodDescribe['workload'] }) {
+  const notes = formatWorkloadNotes(workload);
+  return (
+    <section className="workload-section" aria-labelledby="workload-heading">
+      <h4 id="workload-heading">Workload</h4>
+      <strong className="workload-identity">{formatWorkloadIdentity(workload)}</strong>
+      {workload?.replicas && <p className="workload-line"><span>Replicas</span>{formatReplicaSummary(workload)}</p>}
+      {workload?.kind && (
+        <p className="workload-line"><span>HPA</span>{formatHpaSummary(workload)}</p>
+      )}
+      {workload?.hpa?.metrics.map((metric) => (
+        <p className="workload-line" key={metric.name}><span>Metric</span>{formatWorkloadMetric(metric)}</p>
+      ))}
+      {notes.map((note) => <p className="details-note" key={note}>{note}</p>)}
+    </section>
   );
 }
 

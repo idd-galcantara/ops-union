@@ -1,4 +1,12 @@
-import { CoreV1Api, KubeConfig, Log, Metrics } from '@kubernetes/client-node';
+import {
+  AppsV1Api,
+  AutoscalingV2Api,
+  CoreV1Api,
+  CustomObjectsApi,
+  KubeConfig,
+  Log,
+  Metrics,
+} from '@kubernetes/client-node';
 import { buildFullCaChain } from './caChain.js';
 import {
   loadKubeConfig,
@@ -91,6 +99,9 @@ export function listContexts(): ContextInfo[] {
 /** Per-context caches so we don't rebuild clients on every request. */
 const scopedConfigCache = new Map<string, KubeConfig>();
 const clientCache = new Map<string, CoreV1Api>();
+const appsCache = new Map<string, AppsV1Api>();
+const customObjectsCache = new Map<string, CustomObjectsApi>();
+const autoscalingCache = new Map<string, AutoscalingV2Api>();
 const metricsCache = new Map<string, Metrics>();
 const logCache = new Map<string, Log>();
 
@@ -134,6 +145,36 @@ export function coreClientForContext(context: string): CoreV1Api {
 
   const client = scopedConfigForContext(context).makeApiClient(CoreV1Api);
   clientCache.set(context, client);
+  return client;
+}
+
+/** Builds (and caches) an AppsV1Api reader scoped to a context. */
+export function appsClientForContext(context: string): AppsV1Api {
+  const cached = appsCache.get(context);
+  if (cached) return cached;
+
+  const client = scopedConfigForContext(context).makeApiClient(AppsV1Api);
+  appsCache.set(context, client);
+  return client;
+}
+
+/** Builds (and caches) a CustomObjectsApi reader scoped to a context. */
+export function customObjectsClientForContext(context: string): CustomObjectsApi {
+  const cached = customObjectsCache.get(context);
+  if (cached) return cached;
+
+  const client = scopedConfigForContext(context).makeApiClient(CustomObjectsApi);
+  customObjectsCache.set(context, client);
+  return client;
+}
+
+/** Builds (and caches) an AutoscalingV2Api reader scoped to a context. */
+export function autoscalingClientForContext(context: string): AutoscalingV2Api {
+  const cached = autoscalingCache.get(context);
+  if (cached) return cached;
+
+  const client = scopedConfigForContext(context).makeApiClient(AutoscalingV2Api);
+  autoscalingCache.set(context, client);
   return client;
 }
 
@@ -209,6 +250,9 @@ export function reloadKubeConfig(selectedPath?: string | null): void {
   kubeConfigSource = nextSource;
   scopedConfigCache.clear();
   clientCache.clear();
+  appsCache.clear();
+  customObjectsCache.clear();
+  autoscalingCache.clear();
   metricsCache.clear();
   logCache.clear();
 }
@@ -220,6 +264,9 @@ export function resetKubeConfigCache(): void {
   kubeConfigSource = null;
   scopedConfigCache.clear();
   clientCache.clear();
+  appsCache.clear();
+  customObjectsCache.clear();
+  autoscalingCache.clear();
   metricsCache.clear();
   logCache.clear();
 }

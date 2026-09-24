@@ -320,6 +320,53 @@ export interface PodTerminationHistoryEntry {
   count?: number;
 }
 
+export type WorkloadKind = 'Deployment' | 'StatefulSet' | 'Rollout';
+
+export interface WorkloadReplicas {
+  desired?: number;
+  current?: number;
+  available?: number;
+  ready?: number;
+  updated?: number;
+  unavailable?: number;
+}
+
+export interface WorkloadMetricValue {
+  value?: string;
+  averageValue?: string;
+  averageUtilization?: number;
+}
+
+export interface WorkloadMetric {
+  name: string;
+  current?: WorkloadMetricValue;
+  target?: WorkloadMetricValue;
+}
+
+export interface WorkloadHpa {
+  name: string;
+  target: { kind: string; name: string };
+  minReplicas?: number;
+  maxReplicas?: number;
+  currentReplicas?: number;
+  desiredReplicas?: number;
+  metrics: WorkloadMetric[];
+}
+
+export interface WorkloadError {
+  code: string;
+  message: string;
+}
+
+export interface WorkloadSummary {
+  kind?: WorkloadKind;
+  name?: string;
+  replicas?: WorkloadReplicas;
+  hpa?: WorkloadHpa;
+  error?: WorkloadError;
+  hpaError?: WorkloadError;
+}
+
 export interface PodDescribe {
   cluster: string;
   namespace: string;
@@ -336,6 +383,7 @@ export interface PodDescribe {
   containers: ContainerDetail[];
   events: PodEvent[];
   terminationHistory: PodTerminationHistoryEntry[];
+  workload?: WorkloadSummary;
   eventsError?: string;
 }
 

@@ -1,6 +1,13 @@
 import type { CoreV1Event, V1Pod } from '@kubernetes/client-node';
-import { coreClientForContext, metricsForContext } from './kubeconfig.js';
+import {
+  appsClientForContext,
+  autoscalingClientForContext,
+  coreClientForContext,
+  customObjectsClientForContext,
+  metricsForContext,
+} from './kubeconfig.js';
 import { safeErrorMessage } from './podsService.js';
+import { getWorkloadSummary, type WorkloadSummary } from './workloadSummary.js';
 
 /** A single container's resource picture, mirroring `kubectl describe`. */
 export interface ContainerDetail {
@@ -70,6 +77,7 @@ export interface PodDescribe {
   containers: ContainerDetail[];
   events: PodEvent[];
   terminationHistory: PodTerminationHistoryEntry[];
+  workload?: WorkloadSummary;
   /** Set when events could not be read; the rest of the describe still returns. */
   eventsError?: string;
 }
@@ -253,6 +261,11 @@ export async function getPodDescribe(
   }
 
   const containers = buildContainers(pod);
+  const workload = await getWorkloadSummary(pod.metadata?.ownerReferences, namespace, {
+    apps: appsClientForContext(cluster),
+    customObjects: customObjectsClientForContext(cluster),
+    autoscaling: autoscalingClientForContext(cluster),
+  });
 
   return {
     cluster,
@@ -275,6 +288,7 @@ export async function getPodDescribe(
     containers,
     events,
     terminationHistory: buildTerminationHistory(containers, events),
+    workload,
     eventsError,
   };
 }

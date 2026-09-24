@@ -1,7 +1,7 @@
 # ops-union - Definicao tecnica do Electron
 
 > Documento de referência da arquitetura e do comportamento de comunicação do
-> ops-union. O checkout atual inclui a implementacao da especificacao v1.5.1;
+> ops-union. O checkout atual inclui a implementacao da especificacao v1.5.2;
 > isso nao representa uma release publicada.
 
 ## 1. Objetivo e escopo
@@ -62,7 +62,7 @@ flowchart TB
   Main --> Files
   Main -->|POST interno com token| Backend
   Backend -->|leitura lazy + cache| KubeConfig
-  Backend -->|CoreV1Api, Metrics, Log| Kubernetes
+  Backend -->|CoreV1Api, AppsV1Api, CustomObjectsApi, AutoscalingV2Api, Metrics, Log| Kubernetes
 ```
 
 ### 2.1 Regra fundamental de comunicação
@@ -452,7 +452,13 @@ Para um pod, o backend faz:
 3. normalização de status, node, IP, QoS, service account, data de criação,
   labels, annotations, conditions e containers, incluindo estado atual, ultimo
   estado e metadados de terminacao quando fornecidos;
-4. ordenação dos eventos do mais novo para o mais antigo.
+4. resolução do owner chain para Deployment, StatefulSet ou Rollout, incluindo
+  ReplicaSet -> Deployment/Rollout;
+5. leitura best-effort do workload e listagem de HPAs namespaced, associando
+  `spec.scaleTargetRef.kind/name`, inclusive `kind: Rollout`;
+6. normalização de replicas, limites/current/desired do HPA e metricas de
+  recursos, sem inventar campos ausentes;
+7. ordenação dos eventos do mais novo para o mais antigo.
 
 O describe tambem inclui `terminationHistory`, uma linha do tempo normalizada
 com estados terminados atuais/anteriores dos containers e eventos do pod,
@@ -463,6 +469,11 @@ duravel de varios dias.
 
 Se a leitura de eventos falhar por falta de permissão, o describe principal
 continua e a resposta inclui `eventsError`.
+
+O campo opcional `workload` preserva a identidade mesmo quando a leitura do
+recurso ou do HPA falha. A interface mostra `HPA not configured` quando o
+workload foi resolvido sem HPA e exibe notas não bloqueantes para falhas,
+ausência da CRD de Argo Rollouts ou permissões insuficientes.
 
 Status HTTP tratado pela rota:
 
@@ -894,6 +905,9 @@ em memória, por contexto:
 
 - `KubeConfig` escopado;
 - `CoreV1Api`;
+- `AppsV1Api`;
+- `CustomObjectsApi`;
+- `AutoscalingV2Api`;
 - `Metrics`;
 - `Log`.
 
@@ -912,6 +926,11 @@ Ao selecionar outro kubeconfig, todos esses caches são limpos.
 | pods | `listNamespacedPod({ namespace })` | tabela principal | sim |
 | describe | `readNamespacedPod({ namespace, name })` | detalhes do pod | sim |
 | describe | `listNamespacedEvent(...)` | eventos do pod | sim |
+| workload | `readNamespacedDeployment(...)` | identidade e replicas | sim |
+| workload | `readNamespacedStatefulSet(...)` | identidade e replicas | sim |
+| workload | `readNamespacedReplicaSet(...)` | seguir owner chain | sim |
+| workload | `getNamespacedCustomObject({ group: "argoproj.io", version: "v1alpha1", plural: "rollouts" })` | Argo Rollout | sim |
+| workload | `listNamespacedHorizontalPodAutoscaler({ namespace })` | HPA e metricas | sim |
 | métricas | `getPodMetrics(namespace)` | CPU e memória | sim |
 | logs | `Log.log(namespace, pod, container, stream, options)` | stream de logs | sim |
 
@@ -1123,6 +1142,12 @@ Ao trocar container ou desmontar o LogViewer:
 - Linhas recebidas enquanto o viewer está pausado são descartadas.
 - O buffer local de logs limita-se a 5.000 linhas.
 - Métricas dependem do `metrics-server` de cada cluster.
+- O resumo de workload depende de RBAC de leitura para Apps, Autoscaling e
+  Custom Objects no namespace consultado.
+- Rollouts dependem da CRD Argo Rollouts `argoproj.io/v1alpha1`, da API
+  `rollouts` e da forma dos campos `spec`/`status`; sem a CRD ou sem RBAC o
+  identidade do workload e o restante do Describe continuam disponíveis quando
+  puderem ser derivados.
 - Presets dependem do diretório de dados do Electron no desktop e do
   `localStorage` no modo web.
 - O backend local não tem autenticação geral nem modelo multiusuário.

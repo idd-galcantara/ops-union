@@ -22,6 +22,8 @@ Cada resultado preserva sua origem. Assim, pods com o mesmo nome em clusters dif
 - Agrupa a tabela por namespace, cluster ou em modo plano.
 - Filtra por pod, cluster, namespace, status, node ou container.
 - Abre um painel de detalhes com informacoes equivalentes a `kubectl describe`.
+- Mostra no painel Describe o workload dono do pod, replicas e dados de HPA para Deployment,
+  StatefulSet e Argo Rollout quando a API e as permissoes estiverem disponiveis.
 - Mantem os diagnosticos avancados de terminacao e reinicio recolhidos por padrao, usando o estado
   atual/ultimo estado dos containers e eventos disponiveis do pod.
 - Consulta CPU e memoria por container quando o `metrics-server` esta disponivel.
@@ -118,7 +120,9 @@ codigo-fonte, use `npm run dev:desktop`.
 - **Node.js v25.2.1**, versao usada e validada neste ambiente, com npm.
 - Acesso aos clusters que serao consultados.
 - Um kubeconfig valido no caminho padrao do cliente Kubernetes, normalmente `~/.kube/config`.
-- Permissao de leitura para namespaces, pods, eventos, metricas e logs conforme o uso desejado.
+- Permissao de leitura para namespaces, pods, eventos, workloads, HPAs, metricas e logs conforme o
+  uso desejado. Argo Rollouts tambem exige a CRD `argoproj.io/v1alpha1` e permissao de leitura para
+  Custom Objects.
 - `metrics-server` instalado e acessivel no cluster para exibir metricas. A ausencia dele nao impede a consulta dos pods.
 
 O backend usa o nome do **contexto** do kubeconfig como identificador selecionavel de cluster. A resposta de contextos tambem informa o nome do cluster Kubernetes associado.
