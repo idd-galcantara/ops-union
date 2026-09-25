@@ -106,6 +106,8 @@ test('explicit pod queries signal workspace reset while silent refresh does not'
   try {
     await useOpsFlowStore.getState().loadPods();
     assert.equal(useOpsFlowStore.getState().explicitQueryRevision, 11);
+    await useOpsFlowStore.getState().loadPods({ resetView: false });
+    assert.equal(useOpsFlowStore.getState().explicitQueryRevision, 11);
     await useOpsFlowStore.getState().loadPods({ silent: true });
     assert.equal(useOpsFlowStore.getState().explicitQueryRevision, 11);
     assert.equal(useOpsFlowStore.getState().filter, 'api');

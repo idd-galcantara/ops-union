@@ -427,7 +427,7 @@ export default function App() {
               onFilterChange={setFilter}
               visibleCount={visiblePods.length}
               totalCount={pods.length}
-              onRefresh={() => void loadPods()}
+              onRefresh={() => void loadPods({ resetView: false })}
               loading={podsLoading}
               refreshing={refreshing}
               refreshSeconds={refreshSeconds}
@@ -437,7 +437,7 @@ export default function App() {
           )}
 
           <div className="panel-content">
-            {podsError && <ErrorState message={podsError} onRetry={() => void loadPods()} />}
+            {podsError && <ErrorState message={podsError} onRetry={() => void loadPods({ resetView: false })} />}
 
             <TargetErrorBanner errors={targetErrors} />
 
@@ -566,7 +566,7 @@ export default function App() {
           />
         )}
       </div>
-      {logModal && <ApplicationLogSourceModal inventory={logModal.inventory} originatingContext={logModal.originatingContext} initialSelectedKeys={logModal.initialSelectedKeys} loading={podsLoading} stale={Boolean(logModal.inventory.snapshotAt && lastUpdatedAt && lastUpdatedAt > logModal.inventory.snapshotAt)} error={podsError} onRefresh={() => void loadPods()} onCancel={() => setLogModal(null)} onConfirm={confirmLogSources} />}
+      {logModal && <ApplicationLogSourceModal inventory={logModal.inventory} originatingContext={logModal.originatingContext} initialSelectedKeys={logModal.initialSelectedKeys} loading={podsLoading} stale={Boolean(logModal.inventory.snapshotAt && lastUpdatedAt && lastUpdatedAt > logModal.inventory.snapshotAt)} error={podsError} onRefresh={() => void loadPods({ resetView: false })} onCancel={() => setLogModal(null)} onConfirm={confirmLogSources} />}
     </div>
   );
 }

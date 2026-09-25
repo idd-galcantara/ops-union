@@ -81,7 +81,7 @@ interface OpsFlowState {
   addTarget: (target: Target) => void;
   removeTarget: (target: Target) => void;
   clearTargets: () => void;
-  loadPods: (options?: { silent?: boolean }) => Promise<void>;
+  loadPods: (options?: { silent?: boolean; resetView?: boolean }) => Promise<void>;
   setGrouping: (grouping: GroupingMode) => void;
   setFilter: (filter: string) => void;
   setRefreshSeconds: (seconds: number) => void;
@@ -326,7 +326,7 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
    * `silent` is used by auto-refresh so the current table stays visible instead
    * of flashing a loading state on every tick.
    */
-  loadPods: async ({ silent = false } = {}) => {
+  loadPods: async ({ silent = false, resetView = !silent } = {}) => {
     const { targets } = get();
     const requestId = ++podsRequestId;
     const revision = get().configurationRevision;
@@ -338,7 +338,7 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
       set((state) => ({
         podsLoading: true,
         podsError: undefined,
-        explicitQueryRevision: state.explicitQueryRevision + 1,
+        ...(resetView ? { explicitQueryRevision: state.explicitQueryRevision + 1 } : {}),
       }));
     }
     try {
