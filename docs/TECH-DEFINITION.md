@@ -1,8 +1,8 @@
 # ops-union - Definicao tecnica do Electron
 
 > Documento de referência da arquitetura e do comportamento de comunicação do
-> ops-union. O checkout atual inclui a implementacao da especificacao v1.5.2;
-> isso nao representa uma release publicada.
+> ops-union. O checkout atual corresponde à release v1.6.0, publicada com a
+> implementação de Workspaces locais.
 
 ## 1. Objetivo e escopo
 
@@ -24,7 +24,7 @@ O sistema permite:
 - abrir detalhes, eventos e métricas de um pod;
 - acompanhar logs de um container por WebSocket;
 - atualizar a lista de pods manualmente ou por polling configuravel;
-- persistir presets e o caminho do kubeconfig localmente.
+- persistir o catálogo de Workspaces, presets e o caminho do kubeconfig localmente.
 
 O sistema não permite alterar o Kubernetes. Não existem operações de create,
 update, patch, replace, delete, restart, scale, exec, attach ou port-forward.
@@ -108,7 +108,7 @@ Responsabilidades:
 - carregar o frontend pela URL local do backend;
 - responder aos handlers IPC;
 - abrir o diálogo nativo de seleção de kubeconfig;
-- salvar `preferences.json` e `presets.json` no diretório `userData`;
+- salvar `preferences.json` e o catálogo versionado em `presets.json` no diretório `userData`;
 - encerrar o backend quando a janela ou o processo desktop for encerrado.
 
 Configuração de segurança da janela:
@@ -236,7 +236,7 @@ interrompido quando o processo backend termina.
 | `/api` | Proxy Vite para `127.0.0.1:4000` | Mesma origem do backend |
 | WebSocket | Proxy Vite com `ws: true` | Mesmo servidor HTTP do backend |
 | Preload | Ausente no navegador | Injeta `window.opsFlowDesktop` |
-| Presets | `localStorage` | `presets.json`, com fallback localStorage |
+| Workspaces e presets | `ops-union.workspaces.v1` | catálogo versionado em `presets.json`, com migração legada |
 | Frontend estático | Não servido pelo backend | Express serve `frontend/dist` |
 
 Configuração do proxy de desenvolvimento: [frontend/vite.config.ts](../frontend/vite.config.ts).
@@ -643,10 +643,11 @@ capturados continuam sujeitos ao estado parcial ou ao motivo do limite.
 
 Os estados visiveis incluem preparacao, leitura, pronto, parcial, falha, cancelamento e expiracao,
 alem dos estados por fonte `queued`, `reading`, `indexing`, `ready`, `partial`, `failed` e
-`cancelled`. A validacao da versao 1.3.2 registrada inclui 193 testes automatizados, sendo 88 no
-backend e 105 no frontend. Os typechecks do backend e frontend, o build do frontend, os
-diagnosticos e `git diff --check` tambem passaram. Os testes incluem o fechamento do workspace em
-consultas explicitas, a preservacao no auto-refresh silencioso e o default de `Wrap lines`.
+`cancelled`. A validacao da versao 1.6.0 registrada inclui 214 testes automatizados, sendo 98 no
+backend e 116 no frontend. Os typechecks dos tres workspaces, os builds, os diagnosticos e
+`git diff --check` tambem passaram. Os testes incluem Workspaces, migracao da biblioteca legada,
+escopo do catalogo ativo, importacao/exportacao, persistencia e o fechamento do workspace de logs
+em consultas explicitas, com preservacao no auto-refresh silencioso e default de `Wrap lines`.
 
 A validacao de integracao da versao 1.3.2 foi somente leitura: fan-out de pods, falha parcial,
 describe, metricas, evento `started` do WebSocket agregado e health `readOnly: true` foram
@@ -669,8 +670,8 @@ Em [desktop/src/main.ts](../desktop/src/main.ts), existem exatamente três handl
 | Canal | Renderer chama | Main faz | Momento |
 | --- | --- | --- | --- |
 | `select-kubeconfig` | `window.opsFlowDesktop.selectKubeconfig()` | abre diálogo, chama rota interna e salva preferência | clique no botão de selecionar arquivo |
-| `load-presets` | `window.opsFlowDesktop.loadPresets()` | lê e valida `presets.json` | hidratação inicial do frontend |
-| `save-presets` | `window.opsFlowDesktop.savePresets(presets)` | valida e grava `presets.json` | criar, editar ou apagar preset |
+| `load-presets` | `window.opsFlowDesktop.loadPresets()` | lê e valida `presets.json` | hidratação inicial do catálogo de Workspaces |
+| `save-presets` | `window.opsFlowDesktop.savePresets(catalog)` | valida e grava `presets.json` | criar, editar ou apagar Workspace/preset |
 
 O renderer não envia token para a rota de seleção. O token fica somente no Main.
 
@@ -708,42 +709,50 @@ Detalhes de erro:
   resultado volta com `status` e `error` para indicar que a sessão funciona,
   mas a escolha não foi persistida.
 
-### 8.3 Presets
+### 8.3 Workspaces e presets
 
-No desktop, `loadPersistentPresets()` usa IPC e o arquivo:
+No desktop, `loadWorkspaceCatalog()` usa o IPC existente e o arquivo:
 
 ```text
 <app.getPath('userData')>/presets.json
 ```
 
-O arquivo contém apenas:
+O formato atual é um catálogo versionado:
 
 ```json
-[
-  {
-    "id": "...",
-    "name": "Example preset",
-    "description": "...",
-    "targets": [
-      { "cluster": "cluster-a", "namespace": "namespace-a" }
-    ]
-  }
-]
+{
+  "version": 1,
+  "activeWorkspaceId": "workspace-...",
+  "workspaces": [
+    {
+      "id": "workspace-...",
+      "name": "My Workspace",
+      "presets": [
+        {
+          "id": "preset-...",
+          "name": "Example preset",
+          "targets": [
+            { "cluster": "cluster-a", "namespace": "namespace-a" }
+          ]
+        }
+      ]
+    }
+  ]
+}
 ```
 
-Ao salvar, o frontend primeiro tenta `localStorage` e, se estiver no desktop,
-também dispara `save-presets` sem bloquear a interface. O carregamento inicial
-do desktop prefere `presets.json`; se falhar, cai para `localStorage`.
-
-Na web, sem preload, somente `localStorage` é usado com a chave
-`ops-union.presets.v1`.
+O desktop aceita a biblioteca plana legada no mesmo arquivo e a migra para um Workspace padrão.
+Na web, o catálogo é persistido com a chave `ops-union.workspaces.v1`; a biblioteca legada
+`ops-union.presets.v1` é lida somente como origem de migração. A exportação usa o envelope
+`ops-union.workspace` versão 1 e inclui somente o Workspace ativo, sem ids locais, uso recente,
+estado operacional, kubeconfig ou credenciais.
 
 ### 8.4 Arquivos locais do Main
 
 | Arquivo | Conteúdo | Leitura | Escrita |
 | --- | --- | --- | --- |
 | `preferences.json` | caminho selecionado do kubeconfig | inicialização | após seleção bem-sucedida |
-| `presets.json` | ids, nomes, descrições e pares cluster/namespace | hidratação | cada alteração de preset |
+| `presets.json` | catálogo versionado de Workspaces, ids, nomes, descrições e pares cluster/namespace | hidratação | cada alteração de Workspace/preset |
 
 O caminho de `userData` é definido pelo Electron, normalmente:
 
@@ -1148,8 +1157,9 @@ Ao trocar container ou desmontar o LogViewer:
   `rollouts` e da forma dos campos `spec`/`status`; sem a CRD ou sem RBAC o
   identidade do workload e o restante do Describe continuam disponíveis quando
   puderem ser derivados.
-- Presets dependem do diretório de dados do Electron no desktop e do
-  `localStorage` no modo web.
+- Workspaces dependem do diretório de dados do Electron no desktop e do catálogo
+  `ops-union.workspaces.v1` no modo web. A biblioteca plana legada é usada apenas durante a
+  migração inicial.
 - O backend local não tem autenticação geral nem modelo multiusuário.
 - O intervalo configurado atualiza somente pods; describe, métricas e logs não
   entram no auto-refresh.

@@ -3,6 +3,9 @@
 Visualização unificada e read-only de recursos Kubernetes (pods, describe, métricas, logs)
 agregados de **múltiplos clusters e múltiplos namespaces** ao mesmo tempo, por uma interface web local.
 
+O estado atual inclui a release **v1.6.0**, que organiza os presets locais em Workspaces nomeados,
+com persistencia web/desktop, migracao da biblioteca plana legada e portabilidade do Workspace ativo.
+
 ## Problema
 
 O trabalho diário exige inspecionar o mesmo tipo de recurso espalhado por vários clusters e
@@ -128,6 +131,16 @@ Browser: visão unificada com agrupamento (namespace | cluster | flat),
 - Tratamento de erros e estados de loading consistentes.
 - **Entregável:** MVP fluido e usável no dia a dia.
 
+### Fase 7 — Workspaces locais (v1.6.0)
+- Catalogo versionado com um Workspace ativo por perfil local.
+- Migracao idempotente da biblioteca plana de presets para `My Workspace`.
+- Escopo de presets, quick access e launchpad pelo Workspace ativo.
+- Criacao, renomeacao, alternancia, exclusao, importacao e exportacao do Workspace ativo.
+- Persistencia web em `ops-union.workspaces.v1` e persistencia desktop no catalogo versionado
+  mantido pelo IPC existente.
+- **Entregável:** Workspaces locais portáteis sem alterar a sessão operacional ou executar consultas
+  Kubernetes durante a gestão do catálogo.
+
 ## Margem de melhoria (pós-MVP)
 
 - Outros recursos: deployments, services, events, configmaps.
@@ -219,8 +232,9 @@ Métodos da API Kubernetes efetivamente usados no backend:
 - `safeErrorMessage` impede o vazamento do dump da `ApiException`, que embute o corpo
   cru e todos os headers de resposta. Coberto por teste que falha se um token em
   header aparecer na mensagem.
-- `localStorage` é usado somente para presets, que guardam apenas nomes de cluster e
-  namespace.
+- `localStorage` armazena o catálogo de Workspaces e seus presets, que guardam apenas nomes de
+  cluster/contexto, namespaces e metadados locais de uso; kubeconfig e credenciais ficam fora do
+  catálogo e da exportação.
 
 Observação: o describe pode conter a palavra "secret" quando um event do cluster
 menciona o **nome** de um Secret (ex.: `ResourceRotationComplete`). É o mesmo texto que

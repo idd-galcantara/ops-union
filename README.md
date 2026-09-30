@@ -40,8 +40,11 @@ Cada resultado preserva sua origem. Assim, pods com o mesmo nome em clusters dif
   iniciais ficam prontos: em Live aguarda linhas renderizadas e, em History, a query inicial. A
   acao respeita Pause e preserva as cargas independentes de janelas History.
 - Atualiza a lista manualmente ou em intervalos de 10, 30 ou 60 segundos.
-- Persiste presets de alvos localmente: no `localStorage` em modo web e no diretório de dados do
-  Electron em modo desktop.
+- Organiza presets de alvos em Workspaces locais, com um Workspace ativo por perfil.
+- Permite criar, renomear, alternar, importar, exportar e excluir Workspaces; presets, quick access
+  e launchpad ficam sempre restritos ao Workspace ativo.
+- Persiste o catálogo de Workspaces no `localStorage` em modo web e no diretório de dados do
+  Electron em modo desktop, migrando automaticamente a biblioteca plana legada.
 - Permite redimensionar a sidebar e o painel de detalhes.
 
 O projeto e deliberadamente **somente leitura**. Nao existem operacoes de restart, scale, exec, attach, port-forward, create, patch, update ou delete.
@@ -69,33 +72,33 @@ flowchart LR
 
 ## Downloads
 
-A release publicada referenciada por estes links e a **v0.5.1**. A implementacao da especificacao
-v1.5.1 esta no checkout atual; esta alteracao nao publica uma nova release. Os
-instaladores e pacotes estao disponiveis na pagina de
-[releases do GitHub](https://github.com/idd-galcantara/ops-union/releases/tag/v0.5.1).
+A release publicada referenciada por estes links e a **v1.6.0**. Ela inclui a organizacao local de
+presets por Workspaces, persistencia web/desktop, migracao da biblioteca legada e importacao/exportacao
+do Workspace ativo. Os instaladores e pacotes estao disponiveis na pagina de
+[releases do GitHub](https://github.com/idd-galcantara/ops-union/releases/tag/v1.6.0).
 
 ### Linux
 
-- [AppImage](https://github.com/idd-galcantara/ops-union/releases/download/v0.5.1/ops-union-0.5.1-linux-x86_64.AppImage)
-- [Pacote Debian](https://github.com/idd-galcantara/ops-union/releases/download/v0.5.1/ops-union-0.5.1-linux-amd64.deb)
+- [AppImage](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.0/ops-union-1.6.0-linux-x86_64.AppImage)
+- [Pacote Debian](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.0/ops-union-1.6.0-linux-amd64.deb)
 
 Instrucoes de instalacao e execucao: [guia de release Linux](docs/README-release-linux.md).
 
 ### Windows
 
-- [Instalador `.exe`](https://github.com/idd-galcantara/ops-union/releases/download/v0.5.1/ops-union-0.5.1-win-x64.exe)
+- [Instalador `.exe`](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.0/ops-union-1.6.0-win-x64.exe)
 
 Instrucoes de instalacao: [guia de release Windows](docs/README-release-windows.md).
 
 ### macOS
 
 O empacotamento macOS gera instaladores `.dmg` e `.zip` para Macs Intel (`x64`) e Apple Silicon
-arm64`). A release `v0.5.1` inclui os quatro artefatos macOS:
+arm64`). A release `v1.6.0` inclui os quatro artefatos macOS:
 
-- [DMG Apple Silicon](https://github.com/idd-galcantara/ops-union/releases/download/v0.5.1/ops-union-0.5.1-mac-arm64.dmg)
-- [DMG Intel](https://github.com/idd-galcantara/ops-union/releases/download/v0.5.1/ops-union-0.5.1-mac-x64.dmg)
-- [ZIP Apple Silicon](https://github.com/idd-galcantara/ops-union/releases/download/v0.5.1/ops-union-0.5.1-mac-arm64.zip)
-- [ZIP Intel](https://github.com/idd-galcantara/ops-union/releases/download/v0.5.1/ops-union-0.5.1-mac-x64.zip)
+- [DMG Apple Silicon](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.0/ops-union-1.6.0-mac-arm64.dmg)
+- [DMG Intel](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.0/ops-union-1.6.0-mac-x64.dmg)
+- [ZIP Apple Silicon](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.0/ops-union-1.6.0-mac-arm64.zip)
+- [ZIP Intel](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.0/ops-union-1.6.0-mac-x64.zip)
 
 Instrucoes de instalacao: [guia de release macOS](docs/README-release-mac.md).
 Instrucoes de empacotamento: [guia de distribuicao](docs/DISTRIBUTION.md).
@@ -301,7 +304,7 @@ npm run dev            # backend + frontend em desenvolvimento
 npm run dev:backend    # somente backend
 npm run dev:frontend   # somente frontend
 npm run build          # build dos tres workspaces
-npm run typecheck      # typecheck dos dois workspaces
+npm run typecheck      # typecheck dos tres workspaces
 npm run package:linux  # empacotamento Linux AppImage e .deb
 npm run package:win    # empacotamento Windows NSIS
 npm run package:mac    # empacotamento macOS x64 e arm64
@@ -551,7 +554,8 @@ ops-union/
 │       ├── store.ts               # Estado global Zustand
 │       ├── types.ts               # Contratos do frontend
 │       ├── podPresentation.ts     # Filtro, agrupamento e ordenacao
-│       ├── presets.ts             # Persistência de presets web e desktop
+│       ├── presets.ts             # Modelo e migracao da biblioteca legada
+│       ├── workspaces.ts          # Catalogo, persistencia e portabilidade de Workspaces
 │       └── components/
 │           ├── TargetSelector.tsx
 │           ├── PodTable.tsx
@@ -598,8 +602,10 @@ A verificacao TLS continua ativa. O projeto nao usa `skipTLSVerify` nem `NODE_TL
 - Nao ha autenticacao propria nem multiusuario.
 - Credenciais, certificados, tokens e headers de autenticacao nao sao retornados nem registrados.
 - Erros da API Kubernetes sao sanitizados antes de chegar ao cliente.
-- Presets armazenam somente nomes de contextos/clusters e namespaces. No modo web, ficam no
-  `localStorage`; no modo desktop, ficam em `presets.json` no diretório de dados do Electron.
+- Workspaces armazenam apenas nomes de contextos/clusters, namespaces e metadados locais de uso.
+  No modo web, o catalogo fica em `ops-union.workspaces.v1`; no modo desktop, fica no catalogo
+  versionado dentro de `presets.json` no diretorio de dados do Electron. A biblioteca plana legada
+  e migrada para `My Workspace` sem alterar os alvos validos.
 - A aplicacao nao oferece nenhuma rota de mutacao do Kubernetes.
 
 Esse modelo e adequado para uso pessoal/local. Ele nao deve ser tratado como um servico multiusuario ou publicado diretamente na rede.
@@ -615,8 +621,8 @@ npm run typecheck
 npm run build
 ```
 
-A validacao da versao 1.3.2 registrada inclui **193 testes**: 88 no backend e 105 no frontend.
-Os typechecks do backend e frontend, o build do frontend e `git diff --check` tambem passaram. Os
+A validacao da versao 1.6.0 registrada inclui **214 testes**: 98 no backend e 116 no frontend.
+Os typechecks dos tres workspaces, os builds e `git diff --check` tambem passaram. Os
 testes verificam, entre outros pontos:
 
 - normalizacao de pods e status;
@@ -626,7 +632,8 @@ testes verificam, entre outros pontos:
 - sugestoes e alcance de namespaces;
 - agrupamento, ordenacao, filtro e severidade de pods;
 - conversao de unidades de CPU e memoria;
-- presets e persistencia local;
+- Workspaces, migracao da biblioteca legada, escopo do catalogo ativo, importacao/exportacao e
+  persistencia local;
 - destaque de texto em logs;
 - fechamento do workspace em consultas explicitas, preservacao no auto-refresh silencioso e estado
   inicial de Wrap lines;
@@ -646,7 +653,8 @@ Nao ha lint configurado no momento, nem uma suite end-to-end que abra o navegado
 - A validacao headless cobriu a launchpad em desktop, mobile e escala 2x, sem overflow horizontal visivel. A interacao de navegador/Electron para reset, auto-refresh, retry, presets, transporte obsoleto e linhas longas agrupadas nao foi concluida porque o alvo CDP ficou obsoleto; nao ha ferramenta de screen reader disponivel. Rotacao/reinicio de containers, falhas de retry de limpeza e limpeza apos restart do desktop tambem permanecem sem verificacao ao vivo.
 - Os limites de memoria decodificada em voo estao implementados e cobertos por testes: 4 MiB por fonte e 32 MiB por sessao. Nao foi executado um profiler de RSS, portanto esses limites nao sao uma medicao de RSS.
 - A validacao read-only de QA cobriu fan-out de pods, falha parcial, describe, metricas, evento `started` do WebSocket agregado e health `readOnly: true` nos contextos disponiveis; nenhuma mutacao, packaging, commit ou release foi executada. A identidade do cluster possui algumas permissoes capazes de mutacao, portanto a protecao read-only continua sendo aplicada pela aplicacao.
-- Presets e larguras de paineis ficam apenas no navegador atual.
+- O catalogo de Workspaces e as larguras de paineis ficam no perfil local; a exportacao inclui apenas
+  o Workspace ativo e exclui ids locais, uso recente, estado operacional, kubeconfig e credenciais.
 - Nao ha validacao runtime de schema alem das validacoes implementadas nas rotas.
 - O modo de producao precisa de um servidor/reverse proxy que entregue o frontend e encaminhe `/api` e WebSocket para o backend; o proxy automatico descrito acima e configurado apenas no servidor de desenvolvimento do Vite.
 
