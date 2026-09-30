@@ -16,8 +16,6 @@ interface PodTableProps {
   /** Key of the pod currently open in the details panel. */
   selectedPod?: string;
   onSelectPod: (pod: NormalizedPod) => void;
-  selectedPods?: Set<string>;
-  onTogglePod?: (pod: NormalizedPod) => void;
 }
 
 /** Stable identity for a pod row across clusters and namespaces. */
@@ -30,7 +28,7 @@ export function podRowKey(pod: { cluster: string; namespace: string; name: strin
  * same data reads correctly whether it is grouped by namespace, by cluster, or
  * shown flat.
  */
-export function PodTable({ pods, grouping, selectedPod, onSelectPod, selectedPods, onTogglePod }: PodTableProps) {
+export function PodTable({ pods, grouping, selectedPod, onSelectPod }: PodTableProps) {
   const groups = groupPods(pods, grouping);
   // In grouped modes the grouping dimension is shown in the group header, so the
   // redundant column is dropped from the rows.
@@ -48,8 +46,6 @@ export function PodTable({ pods, grouping, selectedPod, onSelectPod, selectedPod
           showNamespace={showNamespace}
           selectedPod={selectedPod}
           onSelectPod={onSelectPod}
-          selectedPods={selectedPods}
-          onTogglePod={onTogglePod}
         />
       ))}
     </div>
@@ -63,8 +59,6 @@ function PodGroupTable({
   showNamespace,
   selectedPod,
   onSelectPod,
-  selectedPods,
-  onTogglePod,
 }: {
   group: PodGroup;
   grouping: GroupingMode;
@@ -72,13 +66,11 @@ function PodGroupTable({
   showNamespace: boolean;
   selectedPod?: string;
   onSelectPod: (pod: NormalizedPod) => void;
-  selectedPods?: Set<string>;
-  onTogglePod?: (pod: NormalizedPod) => void;
 }) {
   const [limit, setLimit] = useState(ROWS_PER_PAGE);
   const visible = group.pods.slice(0, limit);
   const hidden = group.pods.length - visible.length;
-  const columnCount = 6 + (showCluster ? 1 : 0) + (showNamespace ? 1 : 0) + (onTogglePod ? 1 : 0);
+  const columnCount = 6 + (showCluster ? 1 : 0) + (showNamespace ? 1 : 0);
 
   return (
     <section className="pod-group">
@@ -110,7 +102,6 @@ function PodGroupTable({
         </caption>
         <thead>
           <tr>
-            {onTogglePod && <th scope="col"><span className="visually-hidden">Select</span></th>}
             {showCluster && <th scope="col">Cluster</th>}
             {showNamespace && <th scope="col">Namespace</th>}
             <th scope="col">Pod</th>
@@ -141,16 +132,6 @@ function PodGroupTable({
               role="button"
               aria-label={`Ver detalhes de ${pod.name}`}
             >
-              {onTogglePod && (
-                <td className="pod-select-cell" onClick={(event) => event.stopPropagation()}>
-                  <input
-                    type="checkbox"
-                    checked={selectedPods?.has(podRowKey(pod)) ?? false}
-                    onChange={() => onTogglePod(pod)}
-                    aria-label={`Select ${pod.name} logs`}
-                  />
-                </td>
-              )}
               {showCluster && <td className="mono-cell">{pod.cluster}</td>}
               {showNamespace && <td className="mono-cell">{pod.namespace}</td>}
               <td className="pod-name-cell" title={pod.name}>

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { ArrowRight, Bookmark, Layers, Moon, Search, ScrollText, Sun, Workflow } from 'lucide-react';
+import { ArrowRight, Bookmark, Layers, Moon, Search, Sun, Workflow } from 'lucide-react';
 import { EmptyState, ErrorState } from './components/Feedback';
 import { ApplicationLogSourceModal } from './components/ApplicationLogSourceModal';
 import { LogViewer } from './components/LogViewer';
@@ -15,7 +15,7 @@ import { describePreset } from './presets';
 import { useOpsFlowStore } from './store';
 import { useResizablePanel } from './useResizablePanel';
 import { buildApplicationLogInventory, inventorySourceKey, selectionToLogSources } from './logSourceInventory';
-import { applicationKeys, hasSingleApplicationKey } from './logSourceModal';
+import { hasSingleApplicationKey } from './logSourceModal';
 import type { ApplicationLogInventory, InventoryIssue, LogSource, LogSourceSelection, NormalizedPod, PodRef, Target } from './types';
 
 type HealthState = 'loading' | 'ok' | 'error';
@@ -47,12 +47,10 @@ function readStoredTheme(): Theme {
 export default function App() {
   const [health, setHealth] = useState<HealthState>('loading');
   const [selected, setSelected] = useState<PodRef | null>(null);
-  const [selectedPodKeys, setSelectedPodKeys] = useState<Set<string>>(new Set());
   const [selectedLogPods, setSelectedLogPods] = useState<PodRef[]>([]);
   const [logSources, setLogSources] = useState<LogSource[]>([]);
   const [logConsultedContexts, setLogConsultedContexts] = useState<Target[]>([]);
   const [logModal, setLogModal] = useState<LogModalState | null>(null);
-  const [logSelectionError, setLogSelectionError] = useState<string | null>(null);
   const [detailsInitialTab, setDetailsInitialTab] = useState<'describe' | 'metrics' | 'logs'>('describe');
   const [theme, setTheme] = useState<Theme>(readStoredTheme);
   const [themeReady, setThemeReady] = useState(() => !Boolean(window.opsFlowDesktop));
@@ -122,20 +120,7 @@ export default function App() {
     setLogSources([]);
     setLogConsultedContexts([]);
     setLogModal(null);
-    setLogSelectionError(null);
     setDetailsInitialTab('describe');
-    setSelectedPodKeys(new Set());
-  };
-
-  const toggleSelectedPod = (pod: NormalizedPod) => {
-    const key = podRowKey(pod);
-    setLogSelectionError(null);
-    setSelectedPodKeys((current) => {
-      const next = new Set(current);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
   };
 
   const targets = useOpsFlowStore((s) => s.targets);
@@ -159,17 +144,10 @@ export default function App() {
   const setRefreshSeconds = useOpsFlowStore((s) => s.setRefreshSeconds);
   const lastUpdatedAt = useOpsFlowStore((s) => s.lastUpdatedAt);
   const hydratePresets = useOpsFlowStore((s) => s.hydratePresets);
-  const selectedPods = pods.filter((pod) => selectedPodKeys.has(podRowKey(pod)));
-  const selectedApplicationCount = applicationKeys(selectedPods).size;
-
   const openLogModalFromPods = (sourcePods: NormalizedPod[], preserveCurrent = false) => {
     const first = sourcePods[0];
     if (!first) return;
-    if (!hasSingleApplicationKey(sourcePods)) {
-      setLogSelectionError('Select pods from one application at a time to open logs. Clear the current selection and choose pods from a single application.');
-      return;
-    }
-    setLogSelectionError(null);
+    if (!hasSingleApplicationKey(sourcePods)) return;
     const issues: InventoryIssue[] = targetErrors.map((item) => ({
       cluster: item.target.cluster,
       namespace: item.target.namespace,
@@ -182,10 +160,6 @@ export default function App() {
     setSelected({ cluster: first.cluster, namespace: first.namespace, name: first.name, containers: first.containers, application: first.application });
     setSelectedLogPods(sourcePods.map((pod) => ({ cluster: pod.cluster, namespace: pod.namespace, name: pod.name, containers: pod.containers, application: pod.application })));
     setLogModal({ inventory, originatingContext: { cluster: first.cluster, namespace: first.namespace }, initialSelectedKeys: currentKeys });
-  };
-
-  const openCombinedLogs = () => {
-    openLogModalFromPods(selectedPods);
   };
 
   const openCurrentLogSources = () => {
@@ -217,12 +191,10 @@ export default function App() {
   const resetView = () => {
     clearTargets();
     setSelected(null);
-    setSelectedPodKeys(new Set());
     setSelectedLogPods([]);
     setLogSources([]);
     setLogConsultedContexts([]);
     setLogModal(null);
-    setLogSelectionError(null);
     setQuickPresetId(null);
     setViewResetRequest((request) => request + 1);
   };
@@ -244,12 +216,10 @@ export default function App() {
   useLayoutEffect(() => {
     if (explicitQueryRevision === 0 && configurationRevision === 0) return;
     setSelected(null);
-    setSelectedPodKeys(new Set());
     setSelectedLogPods([]);
     setLogSources([]);
     setLogConsultedContexts([]);
     setLogModal(null);
-    setLogSelectionError(null);
     setDetailsInitialTab('describe');
     setFilter('');
   }, [configurationRevision, explicitQueryRevision, setFilter]);
@@ -397,25 +367,6 @@ export default function App() {
                 <span>
                   <strong>{namespaceCount}</strong> namespace(s)
                 </span>
-                {selectedPodKeys.size > 0 && (
-                  <>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={openCombinedLogs}
-                      disabled={selectedApplicationCount > 1}
-                      aria-describedby={selectedApplicationCount > 1 ? 'combined-logs-selection-help' : undefined}
-                      title={selectedApplicationCount > 1 ? 'Select pods from one application at a time' : 'Open logs'}
-                    >
-                      <ScrollText size={13} /> Open logs ({selectedPodKeys.size})
-                    </button>
-                    {(selectedApplicationCount > 1 || logSelectionError) && (
-                      <p id="combined-logs-selection-help" className="panel-selection-warning" role="alert">
-                        {logSelectionError ?? 'Selected pods belong to multiple applications. Clear the current selection and choose pods from a single application to open logs.'}
-                      </p>
-                    )}
-                  </>
-                )}
               </div>
             )}
           </div>
@@ -448,8 +399,6 @@ export default function App() {
                 grouping={grouping}
                 selectedPod={selected ? podRowKey(selected) : undefined}
                 onSelectPod={openPod}
-                selectedPods={selectedPodKeys}
-                onTogglePod={toggleSelectedPod}
               />
             )}
 
@@ -558,8 +507,6 @@ export default function App() {
               setSelectedLogPods([]);
               setLogSources([]);
               setLogConsultedContexts([]);
-              setSelectedPodKeys(new Set());
-              setLogSelectionError(null);
             }}
             resizing={details.resizing}
             onResizeStart={details.startResize}
