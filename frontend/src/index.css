@@ -4190,7 +4190,30 @@ button {
   flex: 0 0 auto;
 }
 
-.preset-delete-all {
+.preset-selection-controls {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-left: auto;
+}
+
+.preset-selection-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font: 9px var(--mono);
+  white-space: nowrap;
+}
+
+.preset-selection-count {
+  color: var(--ink);
+  font: 9px var(--mono);
+  white-space: nowrap;
+}
+
+.preset-delete-selected {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -4465,12 +4488,16 @@ button {
 
 .preset-library-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: 4px;
   padding: 3px;
   border: 1px solid transparent;
   border-radius: 5px;
+}
+
+.preset-selection-checkbox {
+  margin: 0 4px;
 }
 
 .preset-library-item.is-active {

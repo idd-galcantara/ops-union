@@ -116,6 +116,7 @@ interface OpsFlowState {
   updatePreset: (id: string, name: string, description: string, targets: Target[]) => void;
   applyPreset: (id: string) => void;
   deletePreset: (id: string) => void;
+  deletePresets: (ids: string[], expectedWorkspaceId: string) => boolean;
   appendImportedPresets: (presets: PortablePreset[]) => void;
   clearPresets: () => void;
 }
@@ -677,17 +678,36 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
 
   deletePreset: (id) => {
     const state = get();
-    const wasActive = state.activePresetId === id;
     const next = state.presets.filter((p) => p.id !== id);
     persistState(get(), next);
     set((state) => ({
       presets: next,
       workspaces: catalogWithPresets(state, next).workspaces,
-      ...(wasActive
+      ...(state.activePresetId === id
         ? { activePresetId: null, activePresetDirty: false }
         : {}),
     }));
-    if (wasActive) resetWorkspaceView();
+  },
+
+  deletePresets: (ids, expectedWorkspaceId) => {
+    const state = get();
+    const selectedIds = [...new Set(ids)];
+    const activeWorkspaceRecord = state.workspaces.find((workspace) => workspace.id === expectedWorkspaceId);
+    if (expectedWorkspaceId !== state.activeWorkspaceId || !activeWorkspaceRecord || selectedIds.length === 0) return false;
+
+    const workspacePresetIds = new Set(activeWorkspaceRecord.presets.map((preset) => preset.id));
+    if (selectedIds.some((id) => !workspacePresetIds.has(id))) return false;
+
+    const selectedIdSet = new Set(selectedIds);
+    const next = state.presets.filter((preset) => !selectedIdSet.has(preset.id));
+    persistState(state, next, expectedWorkspaceId);
+    const wasActive = state.activePresetId !== null && selectedIdSet.has(state.activePresetId);
+    set((current) => ({
+      presets: next,
+      workspaces: catalogWithPresets(current, next, expectedWorkspaceId).workspaces,
+      ...(wasActive ? { activePresetId: null, activePresetDirty: false } : {}),
+    }));
+    return true;
   },
 
   appendImportedPresets: (importedPresets) => {

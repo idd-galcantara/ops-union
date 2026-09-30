@@ -92,7 +92,7 @@ test('clearPresets persists an empty library and resets the active view', () => 
   }
 });
 
-test('deleting the active preset resets the current view', () => {
+test('deleting the active preset preserves the current view', () => {
   const original = useOpsFlowStore.getState();
   const active = createPreset('active', [{ cluster: 'c1', namespace: 'n1' }]);
   useOpsFlowStore.setState({
@@ -111,9 +111,72 @@ test('deleting the active preset resets the current view', () => {
     const state = useOpsFlowStore.getState();
     assert.deepEqual(state.presets, []);
     assert.equal(state.activePresetId, null);
-    assert.deepEqual(state.targets, []);
-    assert.deepEqual(state.pods, []);
-    assert.equal(state.hasQueried, false);
+    assert.deepEqual(state.targets, [{ cluster: 'c1', namespace: 'n1' }]);
+    assert.deepEqual(state.pods, [ {
+      cluster: 'c1', namespace: 'n1', name: 'pod', status: 'Running', ready: '1/1', restarts: 0,
+      node: 'node', ageSeconds: 10, containers: ['app'], application: { key: 'pod:pod', name: 'pod', source: 'pod' },
+    }]);
+    assert.equal(state.hasQueried, true);
+  } finally {
+    useOpsFlowStore.setState(original);
+  }
+});
+
+test('bulk deletion removes exact ids and preserves the operational view when active preset is selected', () => {
+  const original = useOpsFlowStore.getState();
+  const active = createPreset('active', [{ cluster: 'c1', namespace: 'n1' }]);
+  const other = createPreset('other', [{ cluster: 'c2', namespace: 'n2' }]);
+  const untouched = createPreset('untouched', [{ cluster: 'c3', namespace: 'n3' }]);
+  const targets = [{ cluster: 'live', namespace: 'namespace' }];
+  const pods = [{
+    cluster: 'live', namespace: 'namespace', name: 'pod', status: 'Running', ready: '1/1', restarts: 0,
+    node: 'node', ageSeconds: 10, containers: ['app'], application: { key: 'pod:pod', name: 'pod', source: 'pod' as const },
+  }];
+  const workspace = original.workspaces.find((item) => item.id === original.activeWorkspaceId);
+  assert.ok(workspace);
+  useOpsFlowStore.setState({
+    presets: [active, other, untouched],
+    workspaces: original.workspaces.map((item) => item.id === workspace.id ? { ...item, presets: [active, other, untouched] } : item),
+    targets,
+    pods,
+    activePresetId: active.id,
+    activePresetDirty: true,
+    hasQueried: true,
+    filter: 'running',
+    explicitQueryRevision: 7,
+  });
+
+  try {
+    const workspaceId = useOpsFlowStore.getState().activeWorkspaceId;
+    assert.equal(useOpsFlowStore.getState().deletePresets([active.id, other.id], workspaceId), true);
+    const state = useOpsFlowStore.getState();
+    assert.deepEqual(state.presets.map((preset) => preset.id), [untouched.id]);
+    assert.equal(state.activePresetId, null);
+    assert.equal(state.activePresetDirty, false);
+    assert.deepEqual(state.targets, targets);
+    assert.deepEqual(state.pods, pods);
+    assert.equal(state.hasQueried, true);
+    assert.equal(state.filter, 'running');
+    assert.equal(state.explicitQueryRevision, 7);
+  } finally {
+    useOpsFlowStore.setState(original);
+  }
+});
+
+test('bulk deletion refuses missing ids without changing the catalog', () => {
+  const original = useOpsFlowStore.getState();
+  const preset = createPreset('kept', [{ cluster: 'c1', namespace: 'n1' }]);
+  const workspace = original.workspaces.find((item) => item.id === original.activeWorkspaceId);
+  assert.ok(workspace);
+  useOpsFlowStore.setState({
+    presets: [preset],
+    workspaces: original.workspaces.map((item) => item.id === workspace.id ? { ...item, presets: [preset] } : item),
+  });
+
+  try {
+    const stateBefore = useOpsFlowStore.getState();
+    assert.equal(stateBefore.deletePresets([preset.id, 'missing'], stateBefore.activeWorkspaceId), false);
+    assert.deepEqual(useOpsFlowStore.getState().presets, [preset]);
   } finally {
     useOpsFlowStore.setState(original);
   }

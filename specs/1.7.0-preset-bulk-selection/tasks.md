@@ -17,7 +17,7 @@ specification authoring does not implement the feature or provide implementation
 
 ## Phase 1 - Selection contract and library controls
 
-- [ ] 1.7.0-BS-1 Align preset selection with the Workspace listing.
+- [x] 1.7.0-BS-1 Align preset selection with the Workspace listing.
   - Inventory the existing Workspace selection owner/helper and reuse its eligible-row scope, master
     checkbox, indeterminate state, clear-selection behavior, and stale-id reconciliation.
   - Add stable-id row checkboxes and ephemeral selection state to the preset library.
@@ -28,7 +28,7 @@ specification authoring does not implement the feature or provide implementation
   - _Validation: focused selection tests for empty/partial/all states, filtering, Workspace changes,
     reorder, stale ids, keyboard labels, and no store/query calls.
 
-- [ ] 1.7.0-BS-2 Replace destructive library controls.
+- [x] 1.7.0-BS-2 Replace destructive library controls.
   - Remove `Delete all` from the preset library and accessible action set.
   - Add selected count, clear-selection, and selected-delete actions with disabled/empty behavior.
   - Preserve editor, import/export, search, apply, and Workspace-management entry points.
@@ -40,7 +40,7 @@ specification authoring does not implement the feature or provide implementation
 
 ## Phase 2 - Confirmation and atomic deletion
 
-- [ ] 1.7.0-BS-3 Add selected-set confirmation using the existing modal pattern.
+- [x] 1.7.0-BS-3 Add selected-set confirmation using the existing modal pattern.
   - Show the selected count, names, target context, Active Workspace, and active-preset impact.
   - Preserve the library under the dialog and implement cancel, Escape, backdrop, focus, pending,
     and duplicate-submit behavior through the existing confirmation contract.
@@ -50,7 +50,7 @@ specification authoring does not implement the feature or provide implementation
   - _Validation: focused dialog tests for copy, exact dismissal behavior, focus restoration, and
     pending interaction isolation.
 
-- [ ] 1.7.0-BS-4 Add one validated atomic bulk-deletion store boundary.
+- [x] 1.7.0-BS-4 Add one validated atomic bulk-deletion store boundary.
   - Accept stable ids plus the expected Active Workspace, revalidate membership, and remove exactly
     the requested records once.
   - Keep persistence on the existing web/desktop boundary and preserve last-confirmed state on write
@@ -63,7 +63,7 @@ specification authoring does not implement the feature or provide implementation
 
 ## Phase 3 - Active preset and operational-state regression
 
-- [ ] 1.7.0-BS-5 Preserve live state when the active preset is deleted.
+- [x] 1.7.0-BS-5 Preserve live state when the active preset is deleted.
   - Clear or reconcile the saved active reference and dirty state when selected ids include the active
     preset.
   - Preserve targets, namespaces, pods, filters, logs, selected details, loading/errors, and query
@@ -76,7 +76,7 @@ specification authoring does not implement the feature or provide implementation
   - _Validation: focused store/component tests with populated operational state and active/inactive
     deletion combinations.
 
-- [ ] 1.7.0-BS-6 Run frontend regression and accessibility validation.
+- [x] 1.7.0-BS-6 Run frontend regression and accessibility validation.
   - Verify `Delete all` is absent, selected deletion is confirmed once, and all existing preset and
     Workspace flows remain reachable.
   - Validate keyboard navigation, screen-reader names/status, focus containment/restoration, narrow
@@ -89,7 +89,7 @@ specification authoring does not implement the feature or provide implementation
 
 ## Phase 4 - Read-only and platform validation
 
-- [ ] 1.7.0-BS-7 Audit ownership and read-only boundaries.
+- [x] 1.7.0-BS-7 Audit ownership and read-only boundaries.
   - Confirm selection/deletion never invokes preset application, pod loading, backend routes,
     Kubernetes APIs, renderer filesystem access, or a second persistence path.
   - Confirm active-preset deletion preserves live state and the exact selected-id contract is used.
@@ -131,5 +131,11 @@ specification authoring does not implement the feature or provide implementation
 
 ## Validation record
 
-No implementation or validation evidence is recorded yet. This section is reserved for the
-implementation, QA, and architecture agents after the approved tasks are executed.
+Implementation evidence for BS-1 through BS-7 was recorded on 2026-09-30: focused and full frontend
+tests passed (128/128), frontend typecheck passed, production build passed, and `git diff --check`
+passed. Static boundary audit found no apply, pod-load, reset, backend, Kubernetes, or renderer
+filesystem path in selected deletion. VS Code diagnostics reported workspace-wide `@types/react`
+resolution noise, but the project TypeScript check was clean.
+
+BS-8 and BS-9 remain unchecked because browser/Electron interaction, persistence-failure injection,
+and the formal `@ops-union-docs-convergence` agent were unavailable in this session.

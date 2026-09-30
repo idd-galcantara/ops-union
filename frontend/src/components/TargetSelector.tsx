@@ -21,6 +21,7 @@ import { canUseManualNamespace, hasExactNamespaceMatch } from '../namespaceSugge
 import { suggestNamespaces } from '../namespaceSuggestions';
 import { getQuickPresets } from '../launchpad';
 import { applyPresetAndLoad } from '../presetFlow';
+import { getPresetSelectionState, reconcilePresetSelection, toggleVisiblePresetSelection } from '../presetSelection';
 import {
   describePreset,
   orderPresetsByRecentUse,
@@ -464,6 +465,7 @@ function PresetSection({ openRequest, resetRequest }: { openRequest: number; res
       {libraryOpen && (
         <PresetLibrary
           presets={presets}
+          activeWorkspaceId={activeWorkspace?.id ?? ''}
           targets={targets}
           activePresetId={activePresetId}
           activePresetDirty={activePresetDirty}
@@ -1649,6 +1651,7 @@ function WorkspaceEditor({ mode, workspace, onClose, onSave }: WorkspaceEditorPr
 
 interface PresetLibraryProps {
   presets: Preset[];
+  activeWorkspaceId: string;
   targets: { cluster: string; namespace: string }[];
   activePresetId: string | null;
   activePresetDirty: boolean;
@@ -1661,11 +1664,11 @@ interface PresetLibraryProps {
 }
 
 type PresetDeleteIntent =
-  | { kind: 'preset'; id: string; trigger: HTMLElement }
-  | { kind: 'all'; trigger: HTMLElement };
+  { kind: 'selected'; ids: string[]; presets: Preset[]; trigger: HTMLElement };
 
 function PresetLibrary({
   presets,
+  activeWorkspaceId,
   targets,
   activePresetId,
   activePresetDirty,
@@ -1677,28 +1680,17 @@ function PresetLibrary({
   onEdit,
 }: PresetLibraryProps) {
   const savePreset = useOpsFlowStore((s) => s.savePreset);
-  const deletePreset = useOpsFlowStore((s) => s.deletePreset);
-  const clearPresets = useOpsFlowStore((s) => s.clearPresets);
+  const deletePresets = useOpsFlowStore((s) => s.deletePresets);
   const [query, setQuery] = useState('');
   const [naming, setNaming] = useState(startNaming);
   const [name, setName] = useState('');
   const [deleteIntent, setDeleteIntent] = useState<PresetDeleteIntent | null>(null);
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [selectedPresetIds, setSelectedPresetIds] = useState<Set<string>>(new Set());
   const libraryBusy = Boolean(applyingPresetId) || deletePending;
   const libraryRef = useRef<HTMLElement>(null);
   const deleteTriggerRef = useRef<HTMLElement | null>(null);
-  const activeDeletePreset = deleteIntent?.kind === 'preset'
-    ? presets.find((preset) => preset.id === deleteIntent.id)
-    : undefined;
-
-  useEffect(() => {
-    if (deleteIntent?.kind === 'preset' && !activeDeletePreset) {
-      setDeleteIntent(null);
-      setDeleteError('The preset no longer exists.');
-    }
-  }, [activeDeletePreset, deleteIntent]);
-
   const visiblePresets = useMemo(() => {
     const orderedPresets = orderPresetsByRecentUse(presets);
     const needle = query.trim().toLowerCase();
@@ -1715,6 +1707,20 @@ function PresetLibrary({
         .includes(needle),
     );
   }, [presets, query]);
+  const visiblePresetIds = useMemo(() => visiblePresets.map((preset) => preset.id), [visiblePresets]);
+  const selectionState = getPresetSelectionState(selectedPresetIds, visiblePresetIds);
+
+  useEffect(() => {
+    setSelectedPresetIds((current) => {
+      const reconciled = reconcilePresetSelection(current, presets.map((preset) => preset.id));
+      if (reconciled.size === current.size && [...reconciled].every((id) => current.has(id))) return current;
+      return reconciled;
+    });
+  }, [presets]);
+
+  useEffect(() => {
+    setSelectedPresetIds(new Set());
+  }, [activeWorkspaceId]);
 
   const confirmSave = () => {
     if (libraryBusy || !name.trim() || targets.length === 0) return;
@@ -1801,18 +1807,43 @@ function PresetLibrary({
             </button>
           )}
           {presets.length > 0 && (
-            <button
-              type="button"
-              className="text-button danger-text preset-delete-all"
-              onClick={(event) => {
-                setDeleteError(null);
-                deleteTriggerRef.current = event.currentTarget;
-                setDeleteIntent({ kind: 'all', trigger: event.currentTarget });
-              }}
-              disabled={libraryBusy}
-            >
-              <Trash2 size={12} /> Delete all
-            </button>
+            <div className="preset-selection-controls">
+              <label className="preset-selection-toggle">
+                <input
+                  type="checkbox"
+                  id="preset-select-all"
+                  checked={selectionState.allVisibleSelected}
+                  ref={(element) => { if (element) element.indeterminate = selectionState.someVisibleSelected; }}
+                  onChange={() => setSelectedPresetIds((current) => toggleVisiblePresetSelection(current, visiblePresetIds))}
+                  disabled={libraryBusy || visiblePresetIds.length === 0}
+                  aria-label={query.trim() ? 'Select visible presets' : 'Select all presets'}
+                />
+                <span>{selectionState.allVisibleSelected ? (query.trim() ? 'Clear visible' : 'Clear all') : (query.trim() ? 'Select visible' : 'Select all')}</span>
+              </label>
+              {selectedPresetIds.size > 0 && (
+                <>
+                  <span className="preset-selection-count" role="status">{selectedPresetIds.size} selected</span>
+                  <button type="button" className="text-button" onClick={() => setSelectedPresetIds(new Set())} disabled={libraryBusy}>Clear selection</button>
+                  <button
+                    type="button"
+                    className="text-button danger-text preset-delete-selected"
+                    onClick={(event) => {
+                      setDeleteError(null);
+                      deleteTriggerRef.current = event.currentTarget;
+                      setDeleteIntent({
+                        kind: 'selected',
+                        ids: [...selectedPresetIds],
+                        presets: presets.filter((preset) => selectedPresetIds.has(preset.id)),
+                        trigger: event.currentTarget,
+                      });
+                    }}
+                    disabled={libraryBusy}
+                  >
+                    <Trash2 size={12} /> Delete selected
+                  </button>
+                </>
+              )}
+            </div>
           )}
         </div>
 
@@ -1848,6 +1879,20 @@ function PresetLibrary({
             const active = preset.id === activePresetId;
             return (
               <div className={`preset-library-item ${active ? 'is-active' : ''}`} key={preset.id}>
+                <input
+                  type="checkbox"
+                  id={`preset-select-${preset.id}`}
+                  className="preset-selection-checkbox"
+                  checked={selectedPresetIds.has(preset.id)}
+                  onChange={() => setSelectedPresetIds((current) => {
+                    const next = new Set(current);
+                    if (next.has(preset.id)) next.delete(preset.id);
+                    else next.add(preset.id);
+                    return next;
+                  })}
+                  disabled={libraryBusy}
+                  aria-label={`Select preset ${preset.name}`}
+                />
                 <button
                   type="button"
                   className="preset-library-apply"
@@ -1872,7 +1917,7 @@ function PresetLibrary({
                   onClick={(event) => {
                     setDeleteError(null);
                     deleteTriggerRef.current = event.currentTarget;
-                    setDeleteIntent({ kind: 'preset', id: preset.id, trigger: event.currentTarget });
+                    setDeleteIntent({ kind: 'selected', ids: [preset.id], presets: [preset], trigger: event.currentTarget });
                   }}
                   aria-label={`Remove preset ${preset.name}`}
                   title={`Remove ${preset.name}`}
@@ -1890,9 +1935,8 @@ function PresetLibrary({
         {deleteIntent && (
           <PresetDeleteConfirmation
             intent={deleteIntent}
-            preset={activeDeletePreset}
+            activePresetId={activePresetId}
             workspaceName={workspaceName}
-            count={presets.length}
             pending={deletePending}
             error={deleteError}
             onCancel={() => {
@@ -1903,16 +1947,13 @@ function PresetLibrary({
               setDeletePending(true);
               setDeleteError(null);
               try {
-                if (deleteIntent.kind === 'preset') {
-                  if (!useOpsFlowStore.getState().presets.some((preset) => preset.id === deleteIntent.id)) {
-                    setDeleteIntent(null);
-                    setDeleteError('The preset no longer exists.');
-                    return;
-                  }
-                  deletePreset(deleteIntent.id);
-                } else {
-                  clearPresets();
+                const currentState = useOpsFlowStore.getState();
+                if (deleteIntent.ids.some((id) => !currentState.presets.some((preset) => preset.id === id))
+                  || !deletePresets(deleteIntent.ids, currentState.activeWorkspaceId)) {
+                  setDeleteError('One or more selected presets are no longer available.');
+                  return;
                 }
+                setSelectedPresetIds(new Set());
                 setDeleteIntent(null);
               } catch {
                 setDeleteError('The preset could not be deleted.');
@@ -1931,9 +1972,8 @@ function PresetLibrary({
 
 function PresetDeleteConfirmation({
   intent,
-  preset,
+  activePresetId,
   workspaceName,
-  count,
   pending,
   error,
   onCancel,
@@ -1942,9 +1982,8 @@ function PresetDeleteConfirmation({
   fallbackFocusRef,
 }: {
   intent: PresetDeleteIntent;
-  preset: Preset | undefined;
+  activePresetId: string | null;
   workspaceName: string;
-  count: number;
   pending: boolean;
   error: string | null;
   onCancel: () => void;
@@ -1952,22 +1991,23 @@ function PresetDeleteConfirmation({
   restoreFocusRef: { current: HTMLElement | null };
   fallbackFocusRef: { current: HTMLElement | null };
 }) {
-  if (intent.kind === 'preset' && !preset) return null;
-  const targetSummary = preset
-    ? preset.targets.map((target) => `${target.cluster}/${target.namespace}`).join(', ')
-    : '';
-  const description = intent.kind === 'all'
-    ? `This will remove all ${count} saved preset${count === 1 ? '' : 's'} from ${workspaceName}. Current targets, pod results, filters, logs, and other operational state will remain unchanged.`
-    : `This will remove the saved preset from ${workspaceName}. Current targets, pod results, filters, logs, and other operational state will remain unchanged${preset?.id ? preset.id === useOpsFlowStore.getState().activePresetId ? '; the active saved reference will be cleared, but live targets remain' : '' : ''}.`;
+  const selectedPresets = intent.presets;
+  const selectedIncludesActive = selectedPresets.some((selectedPreset) => selectedPreset.id === activePresetId);
+  const selectedTargetCount = selectedPresets.reduce((total, selectedPreset) => total + selectedPreset.targets.length, 0);
+  const description = `This will remove ${selectedPresets.length} saved preset${selectedPresets.length === 1 ? '' : 's'} from ${workspaceName}. Current targets, pods, filters, logs, query state, and other operational view state will remain unchanged${selectedIncludesActive ? '; the active saved reference will be cleared while live targets remain' : ''}.`;
 
   return (
     <DestructiveConfirmation
-      title={intent.kind === 'all' ? 'Delete all presets?' : `Delete preset "${preset?.name}"?`}
+      title={`Delete ${selectedPresets.length} selected preset${selectedPresets.length === 1 ? '' : 's'}?`}
       description={description}
-      context={intent.kind === 'preset' && preset ? (
-        <p><strong>{preset.targets.length} target{preset.targets.length === 1 ? '' : 's'}</strong>: {targetSummary}</p>
-      ) : <p><strong>{count} saved preset{count === 1 ? '' : 's'}</strong> in the Active Workspace.</p>}
-      confirmLabel={intent.kind === 'all' ? 'Delete all' : 'Delete preset'}
+      context={(
+        <>
+          <p><strong>{selectedPresets.length} saved preset{selectedPresets.length === 1 ? '' : 's'}</strong> in the Active Workspace.</p>
+          <p><strong>{selectedTargetCount} target{selectedTargetCount === 1 ? '' : 's'}</strong> across the selected presets.</p>
+          <ul>{selectedPresets.map((selectedPreset) => <li key={selectedPreset.id}>{selectedPreset.name}</li>)}</ul>
+        </>
+      )}
+      confirmLabel="Delete selected"
       pending={pending}
       error={error}
       onCancel={onCancel}
