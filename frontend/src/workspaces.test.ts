@@ -110,7 +110,7 @@ test('Workspace import preserves the source name for duplicate-name validation',
   assert.equal(result.suggestedName, 'Payments Team');
 });
 
-test('Workspace management scopes presets without changing operational state', () => {
+test('creating a Workspace resets the operational view', () => {
   const original = useOpsFlowStore.getState();
   const first = createDefaultWorkspace([createPreset('Existing', [{ cluster: 'c1', namespace: 'n1' }])]);
   useOpsFlowStore.setState({
@@ -142,7 +142,7 @@ test('Workspace management scopes presets without changing operational state', (
     assert.equal(useOpsFlowStore.getState().workspaces.find((workspace) => workspace.id === createdId)?.name, 'Platform Operations');
     assert.equal(useOpsFlowStore.getState().renameWorkspace(first.activeWorkspaceId, 'Core Team'), undefined);
     assert.equal(useOpsFlowStore.getState().workspaces.find((workspace) => workspace.id === first.activeWorkspaceId)?.name, 'Core Team');
-    assert.deepEqual(state.targets, [{ cluster: 'live', namespace: 'ns' }]);
+    assert.deepEqual(state.targets, []);
     assert.deepEqual(state.pods, []);
     assert.equal(state.filter, '');
     assert.equal(state.hasQueried, false);
@@ -150,13 +150,13 @@ test('Workspace management scopes presets without changing operational state', (
     const switched = useOpsFlowStore.getState();
     assert.equal(switched.presets[0].name, 'Existing');
     assert.equal(switched.workspaces.find((workspace) => workspace.id === first.activeWorkspaceId)?.presets[0].name, 'Existing');
-    assert.deepEqual(switched.targets, [{ cluster: 'live', namespace: 'ns' }]);
+    assert.deepEqual(switched.targets, []);
   } finally {
     useOpsFlowStore.setState(original);
   }
 });
 
-test('switching Workspaces preserves live state and clears a cross-Workspace active preset', () => {
+test('switching Workspaces resets the operational view and clears a cross-Workspace active preset', () => {
   const original = useOpsFlowStore.getState();
   const first = createDefaultWorkspace([createPreset('Current', [{ cluster: 'c1', namespace: 'n1' }])]);
   const second = createDefaultWorkspace([]);
@@ -182,7 +182,7 @@ test('switching Workspaces preserves live state and clears a cross-Workspace act
   try {
     assert.equal(useOpsFlowStore.getState().switchWorkspace(second.activeWorkspaceId), undefined);
     const state = useOpsFlowStore.getState();
-    assert.deepEqual(state.targets, [{ cluster: 'live', namespace: 'ns' }]);
+    assert.deepEqual(state.targets, []);
     assert.deepEqual(state.pods, []);
     assert.equal(state.podsLoading, false);
     assert.equal(state.podsError, undefined);

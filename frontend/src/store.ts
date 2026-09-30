@@ -137,9 +137,15 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
     persistWorkspaceCatalog(catalogWithPresets(state, presets, activeWorkspaceId));
   };
 
-  const resetPodResults = () => {
+  const resetWorkspaceView = () => {
+    namespacesRequestId += 1;
     podsRequestId += 1;
     set((state) => ({
+      targets: [],
+      namespaces: [],
+      namespacesFor: [],
+      namespacesLoading: false,
+      namespacesError: undefined,
       pods: [],
       targetErrors: [],
       podsLoading: false,
@@ -147,6 +153,7 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
       hasQueried: false,
       podsError: undefined,
       lastUpdatedAt: undefined,
+      filter: '',
       explicitQueryRevision: state.explicitQueryRevision + 1,
     }));
   };
@@ -457,7 +464,7 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
       activePresetId: null,
       activePresetDirty: false,
     });
-    resetPodResults();
+    resetWorkspaceView();
     return undefined;
   },
 
@@ -487,7 +494,7 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
       activePresetId: workspace.presets.some((preset) => preset.id === state.activePresetId) ? state.activePresetId : null,
       activePresetDirty: false,
     });
-    resetPodResults();
+    resetWorkspaceView();
     return undefined;
   },
 
@@ -669,15 +676,18 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
   },
 
   deletePreset: (id) => {
-    const next = get().presets.filter((p) => p.id !== id);
+    const state = get();
+    const wasActive = state.activePresetId === id;
+    const next = state.presets.filter((p) => p.id !== id);
     persistState(get(), next);
     set((state) => ({
       presets: next,
       workspaces: catalogWithPresets(state, next).workspaces,
-      ...(state.activePresetId === id
+      ...(wasActive
         ? { activePresetId: null, activePresetDirty: false }
         : {}),
     }));
+    if (wasActive) resetWorkspaceView();
   },
 
   appendImportedPresets: (importedPresets) => {
@@ -700,6 +710,7 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
   },
 
   clearPresets: () => {
+    const hadActivePreset = get().activePresetId !== null;
     persistState(get(), []);
     set((state) => ({
       presets: [],
@@ -707,6 +718,7 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
       activePresetId: null,
       activePresetDirty: false,
     }));
+    if (hadActivePreset) resetWorkspaceView();
   },
   };
 });

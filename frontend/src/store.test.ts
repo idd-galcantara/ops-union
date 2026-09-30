@@ -50,7 +50,7 @@ test('appendImportedPresets persists fresh presets without changing view state',
   }
 });
 
-test('clearPresets persists an empty library and preserves current view state', () => {
+test('clearPresets persists an empty library and resets the active view', () => {
   const original = useOpsFlowStore.getState();
   const active = createPreset('active', [{ cluster: 'c1', namespace: 'n1' }]);
   useOpsFlowStore.setState({
@@ -81,11 +81,39 @@ test('clearPresets persists an empty library and preserves current view state', 
     assert.deepEqual(state.presets, []);
     assert.equal(state.activePresetId, null);
     assert.equal(state.activePresetDirty, false);
-    assert.deepEqual(state.targets, [{ cluster: 'c1', namespace: 'n1' }]);
-    assert.equal(state.pods[0].name, 'pod');
+    assert.deepEqual(state.targets, []);
+    assert.deepEqual(state.pods, []);
+    assert.equal(state.hasQueried, false);
     assert.equal(state.grouping, 'flat');
-    assert.equal(state.filter, 'running');
+    assert.equal(state.filter, '');
     assert.equal(state.refreshSeconds, 60);
+  } finally {
+    useOpsFlowStore.setState(original);
+  }
+});
+
+test('deleting the active preset resets the current view', () => {
+  const original = useOpsFlowStore.getState();
+  const active = createPreset('active', [{ cluster: 'c1', namespace: 'n1' }]);
+  useOpsFlowStore.setState({
+    presets: [active],
+    targets: [{ cluster: 'c1', namespace: 'n1' }],
+    pods: [{
+      cluster: 'c1', namespace: 'n1', name: 'pod', status: 'Running', ready: '1/1', restarts: 0,
+      node: 'node', ageSeconds: 10, containers: ['app'], application: { key: 'pod:pod', name: 'pod', source: 'pod' },
+    }],
+    activePresetId: active.id,
+    hasQueried: true,
+  });
+
+  try {
+    useOpsFlowStore.getState().deletePreset(active.id);
+    const state = useOpsFlowStore.getState();
+    assert.deepEqual(state.presets, []);
+    assert.equal(state.activePresetId, null);
+    assert.deepEqual(state.targets, []);
+    assert.deepEqual(state.pods, []);
+    assert.equal(state.hasQueried, false);
   } finally {
     useOpsFlowStore.setState(original);
   }

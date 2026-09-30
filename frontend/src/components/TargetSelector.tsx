@@ -7,6 +7,7 @@ import {
   Download,
   FileUp,
   Layers,
+  LayoutGrid,
   Loader,
   Pencil,
   Plus,
@@ -27,7 +28,7 @@ import {
 } from '../presets';
 import { useOpsFlowStore } from '../store';
 import { targetKey, type NamespaceInfo } from '../types';
-import { parseWorkspaceImportFile, validateWorkspaceName, type Workspace, type WorkspaceImportResult } from '../workspaces';
+import { MAX_WORKSPACE_NAME_LENGTH, parseWorkspaceImportFile, validateWorkspaceName, type Workspace, type WorkspaceImportResult } from '../workspaces';
 import { ErrorState, LoadingState } from './Feedback';
 import { DestructiveConfirmation } from './DestructiveConfirmation';
 import { NamespaceInput } from './NamespaceInput';
@@ -188,6 +189,7 @@ export function TargetSelector({
     setSelectedClusters([]);
     setSelectedNamespaces([]);
     setNamespace('');
+    setContextFilter('');
   };
 
   return (
@@ -1105,35 +1107,75 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
         <div className="workspace-quick-controls">
           <button
             type="button"
-            className="workspace-quick-trigger"
+            className="workspace-quick-trigger workspace-workspace-quick-trigger"
             onClick={() => {
               closeQuickMenu(false);
               openManager();
             }}
             aria-expanded={open}
             aria-controls="workspace-manager"
+            aria-haspopup="dialog"
             aria-label={`Workspace: ${active.name}`}
             disabled={managerBusy}
           >
             <span className="workspace-context-label">Workspace</span>
             <strong title={active.name}>{active.name}</strong>
-            <ChevronDown size={13} aria-hidden="true" />
+            <LayoutGrid size={13} aria-hidden="true" />
           </button>
-          <button
-            ref={presetQuickTriggerRef}
-            type="button"
-            className="workspace-quick-trigger workspace-preset-quick-trigger"
-            onClick={togglePresetMenu}
-            aria-expanded={quickOpen === 'preset'}
-            aria-controls="preset-quick-menu"
-            aria-label={`Preset: ${activePreset?.name ?? 'Live search'}`}
-            disabled={quickMenuBusy}
-          >
-            <Bookmark size={13} aria-hidden="true" />
-            <span className="workspace-context-label">Preset</span>
-            <strong title={activePreset?.name}>{activePreset?.name ?? 'Live search'}</strong>
-            <ChevronDown size={13} aria-hidden="true" />
-          </button>
+          <div className="workspace-preset-control">
+            <button
+              ref={presetQuickTriggerRef}
+              type="button"
+              className="workspace-quick-trigger workspace-preset-quick-trigger"
+              onClick={togglePresetMenu}
+              aria-expanded={quickOpen === 'preset'}
+              aria-controls="preset-quick-menu"
+              aria-label={`Preset: ${activePreset?.name ?? 'Live search'}`}
+              disabled={quickMenuBusy}
+            >
+              <Bookmark size={13} aria-hidden="true" />
+              <span className="workspace-context-label">Preset</span>
+              <strong title={activePreset?.name}>{activePreset?.name ?? 'Live search'}</strong>
+              <ChevronDown size={13} aria-hidden="true" />
+            </button>
+            {quickOpen === 'preset' && (
+              <div className="workspace-quick-popover preset-quick-popover" id="preset-quick-menu" role="menu" aria-label="Recent presets">
+              <span className="workspace-quick-heading">Recent Presets</span>
+              {quickPresets.length > 0 ? (
+                <div className="workspace-quick-list">
+                  {quickPresets.map((preset) => {
+                    const presetActive = preset.id === activePresetId;
+                    const presetPending = preset.id === quickApplyingPresetId;
+                    return (
+                      <button
+                        type="button"
+                        className={`workspace-quick-item ${presetActive ? 'is-active' : ''}`}
+                        key={preset.id}
+                        onClick={() => selectQuickPreset(preset.id)}
+                        role="menuitemradio"
+                        aria-checked={presetActive}
+                        aria-busy={presetPending}
+                        disabled={quickMenuBusy}
+                      >
+                        {presetPending ? <Loader size={14} className="spinning" aria-hidden="true" /> : <Bookmark size={14} aria-hidden="true" />}
+                        <span>
+                          <strong title={preset.name}>{preset.name}</strong>
+                          <small>{describePreset(preset)}</small>
+                        </span>
+                        {presetActive && <Check size={14} aria-label="Active" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="workspace-quick-empty">No presets saved in this Workspace.</p>
+              )}
+              <button type="button" className="workspace-quick-manager-link" onClick={openQuickPresetLibrary} disabled={quickMenuBusy}>
+                <Bookmark size={13} /> Open preset library
+              </button>
+              </div>
+            )}
+          </div>
           {activePresetDirty && (
             <button
               type="button"
@@ -1147,43 +1189,6 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
             </button>
           )}
         </div>
-        {quickOpen === 'preset' && (
-          <div className="workspace-quick-popover preset-quick-popover" id="preset-quick-menu" role="menu" aria-label="Recent presets">
-          <span className="workspace-quick-heading">Recent Presets</span>
-          {quickPresets.length > 0 ? (
-            <div className="workspace-quick-list">
-              {quickPresets.map((preset) => {
-                const presetActive = preset.id === activePresetId;
-                const presetPending = preset.id === quickApplyingPresetId;
-                return (
-                  <button
-                    type="button"
-                    className={`workspace-quick-item ${presetActive ? 'is-active' : ''}`}
-                    key={preset.id}
-                    onClick={() => selectQuickPreset(preset.id)}
-                    role="menuitemradio"
-                    aria-checked={presetActive}
-                    aria-busy={presetPending}
-                    disabled={quickMenuBusy}
-                  >
-                    {presetPending ? <Loader size={14} className="spinning" aria-hidden="true" /> : <Bookmark size={14} aria-hidden="true" />}
-                    <span>
-                      <strong title={preset.name}>{preset.name}</strong>
-                      <small>{describePreset(preset)}</small>
-                    </span>
-                    {presetActive && <Check size={14} aria-label="Active" />}
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="workspace-quick-empty">No presets saved in this Workspace.</p>
-          )}
-          <button type="button" className="workspace-quick-manager-link" onClick={openQuickPresetLibrary} disabled={quickMenuBusy}>
-            <Bookmark size={13} /> Open preset library
-          </button>
-          </div>
-        )}
       </div>
       {status && !open && <p className="workspace-status" role="status" aria-live="polite">{status}</p>}
       {quickApplyingPresetId && (
@@ -1623,7 +1628,7 @@ function WorkspaceEditor({ mode, workspace, onClose, onSave }: WorkspaceEditorPr
         <div className="preset-editor-fields">
           <label>
             <span>Name</span>
-            <input value={name} onChange={(event) => { setName(event.target.value); setError(null); }} autoFocus onKeyDown={(event) => event.key === 'Enter' && submit()} />
+            <input value={name} maxLength={MAX_WORKSPACE_NAME_LENGTH} onChange={(event) => { setName(event.target.value); setError(null); }} autoFocus onKeyDown={(event) => event.key === 'Enter' && submit()} />
           </label>
           <label>
             <span>Description <em>optional</em></span>

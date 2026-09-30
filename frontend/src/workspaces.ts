@@ -63,6 +63,7 @@ export const WORKSPACE_STORAGE_KEY = 'ops-union.workspaces.v1';
 export const WORKSPACE_EXPORT_FORMAT = 'ops-union.workspace';
 export const WORKSPACE_BUNDLE_EXPORT_FORMAT = 'ops-union.workspace-bundle';
 export const WORKSPACE_EXPORT_VERSION = 1;
+export const MAX_WORKSPACE_NAME_LENGTH = 100;
 export const DEFAULT_WORKSPACE_NAME = 'My Workspace';
 
 function createLocalId(prefix: string): string {
@@ -97,6 +98,7 @@ export function validateWorkspaceName(
 ): string | undefined {
   const trimmed = name.trim();
   if (!trimmed) return 'Workspace name is required.';
+  if (trimmed.length > MAX_WORKSPACE_NAME_LENGTH) return `Workspace name must be ${MAX_WORKSPACE_NAME_LENGTH} characters or fewer.`;
   const normalized = trimmed.toLocaleLowerCase();
   if (workspaces.some((workspace) => workspace.id !== excludeId && workspace.name.toLocaleLowerCase() === normalized)) {
     return `Workspace name "${trimmed}" is already in use.`;

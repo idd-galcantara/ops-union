@@ -183,19 +183,16 @@ button {
 }
 
 .topbar > .workspace-section .workspace-quick-controls {
-  width: min(430px, 100%);
+  width: min(700px, 100%);
   margin: 0 auto;
-  padding: 6px 9px;
-  background: var(--surface-subtle);
+  padding: 0;
 }
 
 .workspace-quick-controls {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 0;
-  border: 1px solid var(--line);
-  border-radius: 7px;
+  gap: 10px;
 }
 
 .workspace-quick-trigger {
@@ -214,9 +211,28 @@ button {
 }
 
 .workspace-quick-trigger + .workspace-quick-trigger {
-  margin-left: 8px;
-  padding-left: 10px;
-  border-left: 1px solid var(--line);
+  margin-left: 0;
+  padding-left: 0;
+  border-left: 0;
+}
+
+.workspace-workspace-quick-trigger {
+  flex: 1 1 auto;
+  padding: 5px 4px;
+}
+
+.workspace-preset-control {
+  position: relative;
+  min-width: 0;
+  flex: 0 1 30ch;
+  min-width: 30ch;
+}
+
+.workspace-preset-quick-trigger {
+  width: 100%;
+  flex: 1;
+  padding: 5px 2px;
+  border-bottom: 1px solid var(--line);
 }
 
 .workspace-quick-trigger:hover,
@@ -243,6 +259,13 @@ button {
   white-space: nowrap;
 }
 
+.workspace-workspace-quick-trigger > strong {
+  flex: 0 1 auto;
+  max-width: min(100ch, calc(100% - 100px));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .workspace-quick-trigger > svg {
   flex: 0 0 auto;
   color: var(--muted);
@@ -257,10 +280,9 @@ button {
   position: absolute;
   z-index: 12;
   top: calc(100% + 8px);
-  left: 50%;
+  right: 0;
   width: min(350px, calc(100vw - 28px));
   padding: 10px;
-  transform: translateX(-50%);
   color: var(--text);
   background: var(--surface);
   border: 1px solid var(--border-strong);
@@ -4987,6 +5009,18 @@ button {
 
   .topbar > .workspace-section .workspace-quick-controls {
     width: 100%;
+  }
+
+  .workspace-quick-controls {
+    flex-wrap: wrap;
+  }
+
+  .workspace-workspace-quick-trigger {
+    flex: 1 1 100%;
+  }
+
+  .workspace-preset-quick-trigger {
+    flex: 1 1 auto;
   }
 
   .workspace-quick-trigger {
