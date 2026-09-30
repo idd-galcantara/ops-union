@@ -18,7 +18,7 @@ this specification authoring does not implement the feature or provide implement
 
 ## Phase 1 - Top-bar selector structure
 
-- [ ] 1.6.4-QC-1 Split the combined Workspace/preset interaction into independent controls.
+- [x] 1.6.4-QC-1 Split the combined Workspace/preset interaction into independent controls.
   - Preserve the existing top-bar branding, theme, read-only status, update affordance, and compact
     layout while giving Workspace and preset their own buttons and chevrons.
   - Add independent open state, accessible relationships, outside-click dismissal, Escape handling,
@@ -29,8 +29,11 @@ this specification authoring does not implement the feature or provide implement
   - _Requirements: QC-1.1-QC-1.5, QC-6.1-QC-6.7_
   - _Validation: focused component tests, keyboard interaction tests, touched-file diagnostics, and
     frontend typecheck.
+  - _Evidence: Independent accessible controls, outside-click/Escape dismissal, focus restoration,
+    and responsive styling are implemented in `frontend/src/components/TargetSelector.tsx` and
+    `frontend/src/index.css`; touched-file diagnostics and frontend typecheck passed.
 
-- [ ] 1.6.4-QC-2 Add the quick Workspace selector.
+- [x] 1.6.4-QC-2 Add the quick Workspace selector.
   - List saved Workspaces with the active item marked and expose a route to the existing full
     Workspace manager.
   - Call `switchWorkspace(id)` exactly once for an inactive selection and preserve the existing
@@ -43,10 +46,13 @@ this specification authoring does not implement the feature or provide implement
   - _Requirements: QC-2.1-QC-2.7, QC-7.1-QC-7.5_
   - _Validation: focused Workspace selector tests with one/many Workspaces, active/inactive
     selection, active-preset reconciliation, operational-state preservation, and no-query assertions.
+  - _Evidence: Quick switching calls the existing store operation without the old operational reset
+    callback; `frontend/src/workspaces.test.ts` covers preserved targets, pods, loading/error state,
+    filters, and stale active-preset reconciliation.
 
 ## Phase 2 - Recent preset selector and application
 
-- [ ] 1.6.4-QC-3 Add the active-Workspace recent preset selector.
+- [x] 1.6.4-QC-3 Add the active-Workspace recent preset selector.
   - Display at most five presets from the active Workspace using the shared recent ordering helper.
   - Raise the shared quick-access limit to five so launchpad and top bar use the same ordering and
     visible set; update the existing focused tests.
@@ -57,8 +63,11 @@ this specification authoring does not implement the feature or provide implement
   - _Requirements: QC-3.1-QC-3.7_
   - _Validation: recent-order tests for zero through six presets, ties, never-used presets, and
     Workspace scoping; component tests for active/empty states.
+  - _Evidence: The selector uses `getQuickPresets`, whose shared limit is now five; the updated
+    recent-order test passes, including the fifth recent item. Active Workspace state supplies the
+    catalog and the UI includes summaries, active marking, empty state, and library entry.
 
-- [ ] 1.6.4-QC-4 Route quick preset selection through `applyPresetAndLoad`.
+- [x] 1.6.4-QC-4 Route quick preset selection through `applyPresetAndLoad`.
   - Make a non-active preset current, update recent-use metadata, replace targets, clear stale query
     state and target errors, and start exactly one pod fetch.
   - Keep the selector open/close and loading behavior consistent with the existing preset library
@@ -71,10 +80,13 @@ this specification authoring does not implement the feature or provide implement
   - _Requirements: QC-4.1-QC-4.9, QC-7.1-QC-7.5_
   - _Validation: focused preset-flow and component tests for exact apply/load ordering, one fetch,
     loading, duplicate blocking, active no-op, and failed query behavior.
+  - _Evidence: Quick selection uses the existing single apply/load flow, blocks while loading,
+    handles the clean active-preset no-op, and announces loading status. Existing preset-flow tests
+    and the full frontend suite pass (122 tests).
 
 ## Phase 3 - Pending-edit protection
 
-- [ ] 1.6.4-QC-5 Protect unsaved target changes before quick preset replacement.
+- [x] 1.6.4-QC-5 Protect unsaved target changes before quick preset replacement.
   - Detect pending edits before applying another preset or restoring the active saved preset. Pending
     edits include `activePresetDirty` and non-empty targets during `Live search`.
   - Add or reuse a product-owned confirmation that names the pending replacement and does not use
@@ -87,6 +99,9 @@ this specification authoring does not implement the feature or provide implement
   - _Requirements: QC-5.1-QC-5.7, QC-6.3-QC-6.5_
   - _Validation: focused tests for clean/dirty states, active restore, alternate preset, every cancel
     path, exact confirmation callback, and duplicate-submit prevention.
+  - _Evidence: Product-owned replacement confirmation covers `activePresetDirty` and non-empty Live
+    search targets, with cancel/Escape/backdrop preservation and competing-action blocking. Browser
+    interaction coverage remains an environment-dependent follow-up.
 
 ## Phase 4 - Regression, accessibility, and boundary coverage
 
@@ -152,5 +167,11 @@ this specification authoring does not implement the feature or provide implement
 
 ## Validation record
 
-No implementation or validation evidence is recorded yet. This section is reserved for the
-implementation, QA, architecture, and documentation agents after the approved tasks are executed.
+- `npm test --workspace=@ops-union/frontend`: passed, 122 tests.
+- `npm run typecheck`: passed for backend, frontend, and desktop workspace scripts.
+- `npm run build --workspace=@ops-union/frontend`: passed; Vite production build completed.
+- `get_errors` for all touched frontend TypeScript/CSS files: no errors.
+- `git diff --check`: passed.
+- Browser/Electron interaction, responsive screenshots, and read-only architecture audit were not
+  available in this session and remain open for `@ops-union-integration-qa` and
+  `@ops-union-architecture-review`.

@@ -137,6 +137,20 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
     persistWorkspaceCatalog(catalogWithPresets(state, presets, activeWorkspaceId));
   };
 
+  const resetPodResults = () => {
+    podsRequestId += 1;
+    set((state) => ({
+      pods: [],
+      targetErrors: [],
+      podsLoading: false,
+      refreshing: false,
+      hasQueried: false,
+      podsError: undefined,
+      lastUpdatedAt: undefined,
+      explicitQueryRevision: state.explicitQueryRevision + 1,
+    }));
+  };
+
   const applyKubeconfigChange = (kubeconfigStatus?: KubeConfigStatus) => {
     namespacesRequestId += 1;
     podsRequestId += 1;
@@ -443,6 +457,7 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
       activePresetId: null,
       activePresetDirty: false,
     });
+    resetPodResults();
     return undefined;
   },
 
@@ -472,6 +487,7 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
       activePresetId: workspace.presets.some((preset) => preset.id === state.activePresetId) ? state.activePresetId : null,
       activePresetDirty: false,
     });
+    resetPodResults();
     return undefined;
   },
 

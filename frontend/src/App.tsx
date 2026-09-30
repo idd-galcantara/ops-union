@@ -287,7 +287,7 @@ export default function App() {
             <span>Kubernetes unified view</span>
           </div>
         </button>
-        <WorkspaceControls onWorkspaceChange={resetView} />
+        <WorkspaceControls onOpenPresetLibrary={openPresetLibrary} />
         <div className="topbar-actions">
           <button
             type="button"

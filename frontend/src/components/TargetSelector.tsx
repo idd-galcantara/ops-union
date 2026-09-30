@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Bookmark,
@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { canUseManualNamespace, hasExactNamespaceMatch } from '../namespaceSuggestions';
 import { suggestNamespaces } from '../namespaceSuggestions';
+import { getQuickPresets } from '../launchpad';
 import { applyPresetAndLoad } from '../presetFlow';
 import {
   describePreset,
@@ -511,7 +512,7 @@ type WorkspaceDeleteIntent =
   | { kind: 'selected'; ids: string[] }
   | { kind: 'keep-active-only'; ids: string[]; activeId: string };
 
-export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: () => void }) {
+export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary: () => void }) {
   const workspaces = useOpsFlowStore((state) => state.workspaces);
   const activeWorkspaceId = useOpsFlowStore((state) => state.activeWorkspaceId);
   const presets = useOpsFlowStore((state) => state.presets);
@@ -526,10 +527,12 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
   const importWorkspace = useOpsFlowStore((state) => state.importWorkspace);
   const exportWorkspaces = useOpsFlowStore((state) => state.exportWorkspaces);
   const updatePreset = useOpsFlowStore((state) => state.updatePreset);
+  const podsLoading = useOpsFlowStore((state) => state.podsLoading);
   const active = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0];
   const [open, setOpen] = useState(false);
   const [workspaceEditor, setWorkspaceEditor] = useState<{ mode: 'create' } | { mode: 'rename'; workspaceId: string } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [workspaceManagerError, setWorkspaceManagerError] = useState<string | null>(null);
   const [importPreview, setImportPreview] = useState<WorkspaceImportResult | null>(null);
   const [importCandidates, setImportCandidates] = useState<WorkspaceImportResult[] | null>(null);
   const [importName, setImportName] = useState('');
@@ -547,11 +550,19 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
   const [workspaceDeleteIntent, setWorkspaceDeleteIntent] = useState<WorkspaceDeleteIntent | null>(null);
   const [workspaceDeletePending, setWorkspaceDeletePending] = useState(false);
   const [workspaceDeleteError, setWorkspaceDeleteError] = useState<string | null>(null);
+  const [quickOpen, setQuickOpen] = useState<'preset' | null>(null);
+  const [quickApplyingPresetId, setQuickApplyingPresetId] = useState<string | null>(null);
+  const [pendingPresetId, setPendingPresetId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
+  const workspaceManagerErrorOkRef = useRef<HTMLButtonElement>(null);
   const workspaceDeleteTriggerRef = useRef<HTMLElement | null>(null);
+  const quickControlsRef = useRef<HTMLDivElement>(null);
+  const presetQuickTriggerRef = useRef<HTMLButtonElement>(null);
   const activePreset = presets.find((preset) => preset.id === activePresetId);
   const managerBusy = Boolean(fileOperation) || workspaceDeletePending;
+  const quickBusy = managerBusy || podsLoading || Boolean(quickApplyingPresetId);
+  const quickMenuBusy = quickBusy || Boolean(pendingPresetId);
   const canUpdateActivePreset = Boolean(activePreset && activePresetDirty && targets.length > 0);
   const visibleWorkspaces = useMemo(() => {
     const needle = workspaceQuery.trim().toLowerCase();
@@ -584,6 +595,75 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
   const selectedImportConflictIndexes = selectedImportCandidates
     .filter(({ candidate }) => Boolean(importConflictFor(candidate)))
     .map(({ index }) => index);
+  const quickPresets = getQuickPresets(presets);
+  const pendingPreset = pendingPresetId ? presets.find((preset) => preset.id === pendingPresetId) : undefined;
+  const hasPendingTargetEdits = activePresetDirty || (activePresetId === null && targets.length > 0);
+
+  const closeQuickMenu = (restoreFocus = true) => {
+    setQuickOpen(null);
+    if (!restoreFocus) return;
+    window.setTimeout(() => {
+      presetQuickTriggerRef.current?.focus();
+    }, 0);
+  };
+
+  const togglePresetMenu = () => {
+    if (quickMenuBusy) return;
+    if (quickOpen === 'preset') {
+      closeQuickMenu();
+      return;
+    }
+    setQuickOpen('preset');
+  };
+
+  useEffect(() => {
+    if (!quickOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!quickControlsRef.current?.contains(event.target as Node)) closeQuickMenu();
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      closeQuickMenu();
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [quickOpen]);
+
+  const openQuickPresetLibrary = () => {
+    closeQuickMenu(false);
+    onOpenPresetLibrary();
+  };
+
+  const selectQuickPreset = (id: string) => {
+    if (quickMenuBusy) return;
+    const preset = presets.find((item) => item.id === id);
+    if (!preset) return;
+    if (id === activePresetId && !hasPendingTargetEdits) {
+      closeQuickMenu();
+      return;
+    }
+    if (hasPendingTargetEdits) {
+      setPendingPresetId(id);
+      return;
+    }
+    closeQuickMenu(false);
+    setQuickApplyingPresetId(id);
+    void applyPresetAndLoad(id, useOpsFlowStore.getState, () => setQuickApplyingPresetId(null)).catch(() => undefined);
+  };
+
+  const confirmQuickPreset = () => {
+    if (!pendingPreset || quickBusy) return;
+    const id = pendingPreset.id;
+    setPendingPresetId(null);
+    closeQuickMenu(false);
+    setQuickApplyingPresetId(id);
+    void applyPresetAndLoad(id, useOpsFlowStore.getState, () => setQuickApplyingPresetId(null)).catch(() => undefined);
+  };
 
   const updateActivePreset = () => {
     if (!activePreset || !canUpdateActivePreset) return;
@@ -593,6 +673,7 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
   const closeManager = () => {
     if (managerBusy) return;
     setOpen(false);
+    setWorkspaceManagerError(null);
     setWorkspaceEditor(null);
     setImportPreview(null);
     setImportCandidates(null);
@@ -613,6 +694,7 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
 
   const openManager = () => {
     setSelectedWorkspaceIds([]);
+    setWorkspaceManagerError(null);
     setOpen(true);
   };
 
@@ -628,17 +710,25 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
   };
 
   const toggleWorkspaceSelection = (id: string) => {
+    setWorkspaceManagerError(null);
     setSelectedWorkspaceIds((current) => current.includes(id)
       ? current.filter((item) => item !== id)
       : [...current, id]);
   };
 
   const toggleVisibleWorkspaceSelection = () => {
+    setWorkspaceManagerError(null);
     setSelectedWorkspaceIds((current) => {
       if (allVisibleWorkspacesSelected) return current.filter((id) => !selectedVisibleWorkspaceIds.includes(id));
       return [...new Set([...current, ...visibleWorkspaces.map((workspace) => workspace.id)])];
     });
   };
+
+  useEffect(() => {
+    if (workspaceManagerError) {
+      workspaceManagerErrorOkRef.current?.focus();
+    }
+  }, [workspaceManagerError]);
 
   useEffect(() => {
     if (!open) return;
@@ -647,6 +737,10 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
       if (event.key !== 'Escape') return;
       if (managerBusy) return;
       if (workspaceDeleteIntent) return;
+      if (workspaceManagerError) {
+        setWorkspaceManagerError(null);
+        return;
+      }
       if (importPreview) {
         setImportPreview(null);
         return;
@@ -668,7 +762,7 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [closeImportBundle, conflictResolutionPosition, importCandidates, importConflictIndexes, importPreview, managerBusy, open, workspaceDeleteIntent, workspaceEditor]);
+  }, [closeImportBundle, conflictResolutionPosition, importCandidates, importConflictIndexes, importPreview, managerBusy, open, workspaceDeleteIntent, workspaceEditor, workspaceManagerError]);
 
   const beginCreate = () => {
     clearWorkspaceSelection();
@@ -800,7 +894,6 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
       || strategy === 'resolve' && Object.prototype.hasOwnProperty.call(resolvedNames, activeImportIndex) && resolvedNames[activeImportIndex] === null
     );
     if (activeWasImported) {
-      onWorkspaceChange();
       closeManager();
     }
   };
@@ -854,9 +947,10 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
     const target = workspaces.find((workspace) => workspace.id === workspaceId);
     if (!target) return;
     if (workspaces.length <= 1) {
-      setStatus('At least one Workspace must remain.');
+      setWorkspaceManagerError('At least one Workspace must remain.');
       return;
     }
+    setWorkspaceManagerError(null);
     setWorkspaceDeleteError(null);
     workspaceDeleteTriggerRef.current = trigger;
     setWorkspaceDeleteIntent({ kind: 'workspace', id: workspaceId });
@@ -867,9 +961,10 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
     const ids = [...new Set(selectedWorkspaceIds)].filter((id) => workspaces.some((workspace) => workspace.id === id));
     if (ids.length === 0) return;
     if (ids.length >= workspaces.length) {
-      setStatus('At least one Workspace must remain. Use Delete all except active to clear the other Workspaces.');
+      setWorkspaceManagerError('At least one Workspace must remain. Use Keep active only to clear the other Workspaces.');
       return;
     }
+    setWorkspaceManagerError(null);
     setWorkspaceDeleteError(null);
     workspaceDeleteTriggerRef.current = trigger;
     setWorkspaceDeleteIntent({ kind: 'selected', ids });
@@ -879,6 +974,7 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
     if (managerBusy) return;
     const ids = workspaces.filter((workspace) => workspace.id !== activeWorkspaceId).map((workspace) => workspace.id);
     if (ids.length === 0) return;
+    setWorkspaceManagerError(null);
     setWorkspaceDeleteError(null);
     workspaceDeleteTriggerRef.current = trigger;
     setWorkspaceDeleteIntent({ kind: 'keep-active-only', ids, activeId: activeWorkspaceId });
@@ -954,7 +1050,6 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
     });
     setStatus(shouldActivate ? 'Workspace imported and selected.' : 'Workspace imported.');
     if (shouldActivate) {
-      onWorkspaceChange();
       closeManager();
     }
   };
@@ -1006,37 +1101,105 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
 
   return (
     <section className="workspace-section" aria-label="Active workspace and preset">
-      <div className="workspace-context">
-        <button
-          type="button"
-          className="workspace-context-trigger"
-          onClick={openManager}
-          aria-expanded={open}
-          aria-controls="workspace-manager"
-          aria-label={`Workspace ${active.name}; ${activePreset?.name ?? 'Live search'}`}
-        >
-          <span className="workspace-context-label">Workspace</span>
-          <strong title={active.name}>{active.name}</strong>
-          <span className="workspace-context-preset" aria-live="polite">
-            <Bookmark size={12} />
-            <b title={activePreset?.name}>{activePreset?.name ?? 'Live search'}</b>
-          </span>
-          <ChevronDown size={13} aria-hidden="true" />
-        </button>
-        {activePresetDirty && (
+      <div ref={quickControlsRef}>
+        <div className="workspace-quick-controls">
           <button
             type="button"
-            className="preset-update-button workspace-update-button"
-            onClick={updateActivePreset}
-            disabled={!canUpdateActivePreset}
-            aria-label={`Update preset ${activePreset?.name ?? 'active preset'}`}
-            title={`Update preset ${activePreset?.name ?? 'active preset'} with the current targets`}
+            className="workspace-quick-trigger"
+            onClick={() => {
+              closeQuickMenu(false);
+              openManager();
+            }}
+            aria-expanded={open}
+            aria-controls="workspace-manager"
+            aria-label={`Workspace: ${active.name}`}
+            disabled={managerBusy}
           >
-            <Save size={11} />
+            <span className="workspace-context-label">Workspace</span>
+            <strong title={active.name}>{active.name}</strong>
+            <ChevronDown size={13} aria-hidden="true" />
           </button>
+          <button
+            ref={presetQuickTriggerRef}
+            type="button"
+            className="workspace-quick-trigger workspace-preset-quick-trigger"
+            onClick={togglePresetMenu}
+            aria-expanded={quickOpen === 'preset'}
+            aria-controls="preset-quick-menu"
+            aria-label={`Preset: ${activePreset?.name ?? 'Live search'}`}
+            disabled={quickMenuBusy}
+          >
+            <Bookmark size={13} aria-hidden="true" />
+            <span className="workspace-context-label">Preset</span>
+            <strong title={activePreset?.name}>{activePreset?.name ?? 'Live search'}</strong>
+            <ChevronDown size={13} aria-hidden="true" />
+          </button>
+          {activePresetDirty && (
+            <button
+              type="button"
+              className="preset-update-button workspace-update-button"
+              onClick={updateActivePreset}
+              disabled={!canUpdateActivePreset || quickBusy}
+              aria-label={`Update preset ${activePreset?.name ?? 'active preset'}`}
+              title={`Update preset ${activePreset?.name ?? 'active preset'} with the current targets`}
+            >
+              <Save size={11} />
+            </button>
+          )}
+        </div>
+        {quickOpen === 'preset' && (
+          <div className="workspace-quick-popover preset-quick-popover" id="preset-quick-menu" role="menu" aria-label="Recent presets">
+          <span className="workspace-quick-heading">Recent Presets</span>
+          {quickPresets.length > 0 ? (
+            <div className="workspace-quick-list">
+              {quickPresets.map((preset) => {
+                const presetActive = preset.id === activePresetId;
+                const presetPending = preset.id === quickApplyingPresetId;
+                return (
+                  <button
+                    type="button"
+                    className={`workspace-quick-item ${presetActive ? 'is-active' : ''}`}
+                    key={preset.id}
+                    onClick={() => selectQuickPreset(preset.id)}
+                    role="menuitemradio"
+                    aria-checked={presetActive}
+                    aria-busy={presetPending}
+                    disabled={quickMenuBusy}
+                  >
+                    {presetPending ? <Loader size={14} className="spinning" aria-hidden="true" /> : <Bookmark size={14} aria-hidden="true" />}
+                    <span>
+                      <strong title={preset.name}>{preset.name}</strong>
+                      <small>{describePreset(preset)}</small>
+                    </span>
+                    {presetActive && <Check size={14} aria-label="Active" />}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="workspace-quick-empty">No presets saved in this Workspace.</p>
+          )}
+          <button type="button" className="workspace-quick-manager-link" onClick={openQuickPresetLibrary} disabled={quickMenuBusy}>
+            <Bookmark size={13} /> Open preset library
+          </button>
+          </div>
         )}
       </div>
-      {status && <p className="workspace-status" role="status" aria-live="polite">{status}</p>}
+      {status && !open && <p className="workspace-status" role="status" aria-live="polite">{status}</p>}
+      {quickApplyingPresetId && (
+        <p className="workspace-status" role="status" aria-live="polite">
+          <Loader size={13} className="spinning" /> Loading pods for {presets.find((preset) => preset.id === quickApplyingPresetId)?.name ?? 'selected preset'}...
+        </p>
+      )}
+      {pendingPreset && (
+        <PresetReplacementConfirmation
+          preset={pendingPreset}
+          pending={Boolean(quickApplyingPresetId)}
+          onCancel={() => setPendingPresetId(null)}
+          onConfirm={confirmQuickPreset}
+          restoreFocusRef={presetQuickTriggerRef}
+        />
+      )}
       {open && (
         <div className="workspace-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && closeManager()}>
           <section className="workspace-modal" ref={dialogRef} id="workspace-manager" role="dialog" aria-modal="true" aria-labelledby="workspace-manager-title" aria-busy={managerBusy} tabIndex={-1}>
@@ -1049,6 +1212,7 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
               <X size={15} />
             </button>
           </div>
+          {status && <p className="workspace-status" role="status" aria-live="polite">{status}</p>}
           <div className="workspace-manager-toolbar">
             {workspaces.length > 0 ? (
               <label className="preset-search workspace-search">
@@ -1094,7 +1258,6 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
                       return;
                     }
                     setStatus(null);
-                    if (workspace.id !== activeWorkspaceId) onWorkspaceChange();
                     closeManager();
                   }}
                   aria-pressed={workspace.id === activeWorkspaceId}
@@ -1161,6 +1324,16 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
               restoreFocusRef={workspaceDeleteTriggerRef}
               fallbackFocusRef={dialogRef}
             />
+          )}
+          {workspaceManagerError && (
+            <div className="workspace-manager-alert-layer">
+              <section className="workspace-manager-alert" role="alertdialog" aria-modal="true" aria-labelledby="workspace-manager-alert-title" aria-describedby="workspace-manager-alert-message">
+                <span className="eyebrow">Workspace action blocked</span>
+                <h3 id="workspace-manager-alert-title">Cannot remove Workspaces</h3>
+                <p id="workspace-manager-alert-message">{workspaceManagerError}</p>
+                <button ref={workspaceManagerErrorOkRef} type="button" className="primary-button" onClick={() => setWorkspaceManagerError(null)}>OK</button>
+              </section>
+            </div>
           )}
           </section>
         </div>
@@ -1302,6 +1475,104 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
         </div>
       )}
     </section>
+  );
+}
+
+function PresetReplacementConfirmation({
+  preset,
+  pending,
+  onCancel,
+  onConfirm,
+  restoreFocusRef,
+}: {
+  preset: Preset;
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  restoreFocusRef: React.RefObject<HTMLButtonElement | null>;
+}) {
+  const titleId = useId();
+  const descriptionId = useId();
+  const dialogRef = useRef<HTMLElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    cancelRef.current?.focus();
+    return () => {
+      const trigger = restoreFocusRef.current;
+      if (trigger && document.contains(trigger)) trigger.focus();
+    };
+  }, [restoreFocusRef]);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!pending) onCancel();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+    );
+    if (!focusable || focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  return (
+    <div
+      className="preset-dialog-layer"
+      onMouseDown={(event) => {
+        if (!pending && event.target === event.currentTarget) onCancel();
+      }}
+    >
+      <section
+        ref={dialogRef}
+        className="preset-secondary-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        aria-busy={pending}
+        tabIndex={-1}
+        onKeyDown={handleKeyDown}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="preset-secondary-dialog-header">
+          <div>
+            <span className="eyebrow">Unsaved target changes</span>
+            <h3 id={titleId}>Replace current targets?</h3>
+          </div>
+          <button type="button" className="icon-button subtle" onClick={onCancel} aria-label="Cancel preset application" disabled={pending}>
+            <X size={15} />
+          </button>
+        </div>
+        <p className="preset-dialog-summary" id={descriptionId}>
+          Applying <strong>{preset.name}</strong> will replace the current unsaved target changes and fetch pods for its saved targets.
+        </p>
+        <div className="destructive-confirmation-context">
+          <p><strong>{preset.targets.length} target{preset.targets.length === 1 ? '' : 's'}</strong>: {describePreset(preset)}</p>
+        </div>
+        <div className="preset-secondary-dialog-actions">
+          <button ref={cancelRef} type="button" className="secondary-button" onClick={onCancel} disabled={pending}>Keep current targets</button>
+          <button type="button" className="primary-button" onClick={onConfirm} disabled={pending}>
+            {pending ? <Loader size={13} className="spinning" /> : <Check size={13} />}
+            {pending ? 'Applying...' : 'Apply preset'}
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 

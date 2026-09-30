@@ -26,7 +26,7 @@ test('getQuickPresets returns an empty list when no presets are saved', () => {
   assert.deepEqual(getQuickPresets([]), []);
 });
 
-test('getQuickPresets selects the four most recently used presets', () => {
+test('getQuickPresets selects the five most recently used presets', () => {
   const presets = createPresets(6).map((preset, index) => ({
     ...preset,
     ...(index === 0 ? { lastUsedAt: 10 } : {}),
@@ -38,6 +38,6 @@ test('getQuickPresets selects the four most recently used presets', () => {
 
   assert.deepEqual(
     getQuickPresets(presets).map((preset) => preset.id),
-    ['preset-1', 'preset-3', 'preset-4', 'preset-2'],
+    ['preset-1', 'preset-3', 'preset-4', 'preset-2', 'preset-0'],
   );
 });

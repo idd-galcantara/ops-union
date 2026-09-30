@@ -133,6 +133,9 @@ test('Workspace management scopes presets without changing operational state', (
     assert.equal(state.workspaces.length, 2);
     assert.equal(state.workspaces[1].name, 'Platform Team');
     assert.deepEqual(state.presets, []);
+    assert.deepEqual(state.pods, []);
+    assert.equal(state.hasQueried, false);
+    assert.equal(state.filter, '');
     const createdId = state.activeWorkspaceId;
     assert.match(useOpsFlowStore.getState().createWorkspace('platform team') ?? '', /already in use/);
     assert.equal(useOpsFlowStore.getState().renameWorkspace(createdId, '  Platform Operations  ', 'Updated'), undefined);
@@ -140,14 +143,54 @@ test('Workspace management scopes presets without changing operational state', (
     assert.equal(useOpsFlowStore.getState().renameWorkspace(first.activeWorkspaceId, 'Core Team'), undefined);
     assert.equal(useOpsFlowStore.getState().workspaces.find((workspace) => workspace.id === first.activeWorkspaceId)?.name, 'Core Team');
     assert.deepEqual(state.targets, [{ cluster: 'live', namespace: 'ns' }]);
-    assert.equal(state.pods[0].name, 'pod');
-    assert.equal(state.filter, 'api');
-    assert.equal(state.hasQueried, true);
+    assert.deepEqual(state.pods, []);
+    assert.equal(state.filter, '');
+    assert.equal(state.hasQueried, false);
     assert.equal(state.switchWorkspace(first.activeWorkspaceId), undefined);
     const switched = useOpsFlowStore.getState();
     assert.equal(switched.presets[0].name, 'Existing');
     assert.equal(switched.workspaces.find((workspace) => workspace.id === first.activeWorkspaceId)?.presets[0].name, 'Existing');
     assert.deepEqual(switched.targets, [{ cluster: 'live', namespace: 'ns' }]);
+  } finally {
+    useOpsFlowStore.setState(original);
+  }
+});
+
+test('switching Workspaces preserves live state and clears a cross-Workspace active preset', () => {
+  const original = useOpsFlowStore.getState();
+  const first = createDefaultWorkspace([createPreset('Current', [{ cluster: 'c1', namespace: 'n1' }])]);
+  const second = createDefaultWorkspace([]);
+  second.workspaces[0].name = 'Platform Team';
+  const currentPreset = first.workspaces[0].presets[0];
+  const pods = [{
+    cluster: 'live', namespace: 'ns', name: 'pod', status: 'Running', ready: '1/1', restarts: 0,
+    node: 'node', ageSeconds: 1, containers: ['app'], application: { key: 'pod', name: 'pod', source: 'pod' as const },
+  }];
+  useOpsFlowStore.setState({
+    workspaces: [...first.workspaces, ...second.workspaces],
+    activeWorkspaceId: first.activeWorkspaceId,
+    presets: first.workspaces[0].presets,
+    targets: [{ cluster: 'live', namespace: 'ns' }],
+    pods,
+    podsLoading: true,
+    podsError: 'existing query error',
+    filter: 'api',
+    activePresetId: currentPreset.id,
+    activePresetDirty: true,
+  });
+
+  try {
+    assert.equal(useOpsFlowStore.getState().switchWorkspace(second.activeWorkspaceId), undefined);
+    const state = useOpsFlowStore.getState();
+    assert.deepEqual(state.targets, [{ cluster: 'live', namespace: 'ns' }]);
+    assert.deepEqual(state.pods, []);
+    assert.equal(state.podsLoading, false);
+    assert.equal(state.podsError, undefined);
+    assert.equal(state.hasQueried, false);
+    assert.equal(state.filter, '');
+    assert.equal(state.activePresetId, null);
+    assert.equal(state.activePresetDirty, false);
+    assert.deepEqual(state.presets, []);
   } finally {
     useOpsFlowStore.setState(original);
   }
