@@ -1,7 +1,8 @@
-# Implementation Tasks - ops-union v1.6.4 quick Workspace and preset switching
+# Implementation Tasks - ops-union v1.6.4 quick Workspace, preset, and application filtering
 
-These tasks describe planned implementation and validation work. They are intentionally unchecked:
-this specification authoring does not implement the feature or provide implementation evidence.
+These tasks describe implementation and validation work. Checked implementation items below are
+limited to behavior supported by the current source/tests; browser, Electron, responsive, and
+architecture validation remain unchecked where no session evidence exists.
 
 ## Ownership and sequencing
 
@@ -21,34 +22,35 @@ this specification authoring does not implement the feature or provide implement
 - [x] 1.6.4-QC-1 Split the combined Workspace/preset interaction into independent controls.
   - Preserve the existing top-bar branding, theme, read-only status, update affordance, and compact
     layout while giving Workspace and preset their own buttons and chevrons.
-  - Add independent open state, accessible relationships, outside-click dismissal, Escape handling,
-    and focus restoration for the two popovers.
-  - Ensure opening one popover closes the other and does not mutate store state.
+  - Add independent control state, accessible relationships, outside-click dismissal, Escape
+    handling, and focus restoration for the preset popover and Workspace manager entry point.
+  - Ensure opening or closing either surface does not mutate store state or apply a preset.
   - _Copilot agent: @ops-union-frontend_
   - _Dependencies: none_
-  - _Requirements: QC-1.1-QC-1.5, QC-6.1-QC-6.7_
+  - _Requirements: QC-1.1-QC-1.5, QC-7.1-QC-7.7_
   - _Validation: focused component tests, keyboard interaction tests, touched-file diagnostics, and
     frontend typecheck.
   - _Evidence: Independent accessible controls, outside-click/Escape dismissal, focus restoration,
     and responsive styling are implemented in `frontend/src/components/TargetSelector.tsx` and
     `frontend/src/index.css`; touched-file diagnostics and frontend typecheck passed.
 
-- [x] 1.6.4-QC-2 Add the quick Workspace selector.
-  - List saved Workspaces with the active item marked and expose a route to the existing full
-    Workspace manager.
-  - Call `switchWorkspace(id)` exactly once for an inactive selection and preserve the existing
-    Workspace contract that keeps current targets, pods, filters, logs, details, and query state.
+- [x] 1.6.4-QC-2 Add the Workspace manager quick control and reset boundary.
+  - Keep the Workspace top-bar control as the entry point to the existing manager, with the active
+    item marked.
+  - Call `switchWorkspace(id)` exactly once for an inactive selection and apply the existing
+    complete operational reset for Workspace switching.
+  - Apply the same reset boundary when `createWorkspace` creates and activates a Workspace.
   - Reconcile an active preset reference that is not present in the selected Workspace without
     applying a fallback preset or calling `loadPods`.
   - Keep the active item a no-op and preserve the manager entry point for one-Workspace catalogs.
   - _Copilot agent: @ops-union-frontend_
   - _Dependencies: 1.6.4-QC-1_
-  - _Requirements: QC-2.1-QC-2.7, QC-7.1-QC-7.5_
-  - _Validation: focused Workspace selector tests with one/many Workspaces, active/inactive
-    selection, active-preset reconciliation, operational-state preservation, and no-query assertions.
-  - _Evidence: Quick switching calls the existing store operation without the old operational reset
-    callback; `frontend/src/workspaces.test.ts` covers preserved targets, pods, loading/error state,
-    filters, and stale active-preset reconciliation.
+  - _Requirements: QC-2.1-QC-2.7, QC-8.1-QC-8.5_
+  - _Validation: focused Workspace manager/store tests with one/many Workspaces, active/inactive
+    selection, create/switch reset assertions, active-preset reconciliation, and no-query assertions.
+  - _Evidence: `frontend/src/store.ts` calls `resetWorkspaceView` from `createWorkspace` and
+    `switchWorkspace`; `frontend/src/workspaces.test.ts` covers create/switch reset state, including
+    targets, pods, loading/error state, textual filters, and stale active-preset reconciliation.
 
 ## Phase 2 - Recent preset selector and application
 
@@ -77,7 +79,7 @@ this specification authoring does not implement the feature or provide implement
   - Make selecting an unchanged active preset with no pending edits a no-op without a duplicate fetch.
   - _Copilot agent: @ops-union-frontend_
   - _Dependencies: 1.6.4-QC-3_
-  - _Requirements: QC-4.1-QC-4.9, QC-7.1-QC-7.5_
+  - _Requirements: QC-4.1-QC-4.9, QC-8.1-QC-8.5_
   - _Validation: focused preset-flow and component tests for exact apply/load ordering, one fetch,
     loading, duplicate blocking, active no-op, and failed query behavior.
   - _Evidence: Quick selection uses the existing single apply/load flow, blocks while loading,
@@ -103,6 +105,34 @@ this specification authoring does not implement the feature or provide implement
     search targets, with cancel/Escape/backdrop preservation and competing-action blocking. Browser
     interaction coverage remains an environment-dependent follow-up.
 
+- [x] 1.6.4-QC-5A Record active-preset deletion reset behavior.
+  - Clear the active preset reference and dirty state when the active saved preset is deleted.
+  - Reset the current operational view through the shared Workspace reset boundary; leave the view
+    intact when an inactive preset is deleted.
+  - _Copilot agent: @ops-union-frontend_
+  - _Dependencies: 1.6.4-QC-2_
+  - _Requirements: QC-6.1-QC-6.3
+  - _Validation: focused store tests for active and inactive preset deletion, followed by application
+    and browser reset checks.
+  - _Evidence: `frontend/src/store.ts` clears the active reference and calls `resetWorkspaceView`;
+    `frontend/src/store.test.ts` covers active preset deletion clearing presets, targets, pods, and
+    query state. The application-filter reset is wired through `App`'s `explicitQueryRevision` effect;
+    no dedicated component test is currently recorded.
+
+- [x] 1.6.4-QC-5B Implement the multiple-application pod filter.
+  - Derive normalized application options and pod counts from the current result.
+  - Support multiple selection, local case-insensitive search by application name/key, clear action,
+    and composition with the existing textual pod filter.
+  - Clear selected applications when the existing operational reset revision changes.
+  - _Copilot agent: @ops-union-frontend_
+  - _Dependencies: 1.6.4-QC-2_
+  - _Requirements: QC-9.1-QC-9.6_
+  - _Validation: focused ViewToolbar/App interaction tests, pod filter tests, and browser checks.
+  - _Evidence: `frontend/src/App.tsx` derives options and applies application selection together with
+    `matchesFilter`; `frontend/src/components/ViewToolbar.tsx` implements multi-select, search, and
+    clearing; `App` clears selected applications on the reset revision. `frontend/src/podPresentation.test.ts`
+    covers the textual predicate, but no dedicated application-filter component test is recorded.
+
 ## Phase 4 - Regression, accessibility, and boundary coverage
 
 - [ ] 1.6.4-QC-6 Validate layout, focus, status, and theme behavior.
@@ -112,7 +142,7 @@ this specification authoring does not implement the feature or provide implement
     outside-click dismissal, and live status messaging.
   - _Copilot agent: @ops-union-frontend_
   - _Dependencies: 1.6.4-QC-1, 1.6.4-QC-2, 1.6.4-QC-3, 1.6.4-QC-4, 1.6.4-QC-5_
-  - _Requirements: QC-1.1-QC-1.5, QC-6.1-QC-6.7_
+  - _Requirements: QC-1.1-QC-1.5, QC-7.1-QC-7.7_
   - _Validation: frontend tests, browser checks, screenshots at supported widths, typecheck, touched-
     file diagnostics, and `git diff --check`.
 
@@ -124,7 +154,7 @@ this specification authoring does not implement the feature or provide implement
     renderer filesystem, or persistence-schema change was introduced.
   - _Copilot agent: @ops-union-architecture-review_
   - _Dependencies: 1.6.4-QC-6_
-  - _Requirements: QC-2.1-QC-2.7, QC-3.1-QC-3.7, QC-7.1-QC-7.5_
+  - _Requirements: QC-2.1-QC-2.7, QC-3.1-QC-3.7, QC-8.1-QC-8.5, QC-9.1-QC-9.6_
   - _Validation: read-only code/contract audit with prioritized findings; no source mutation or
     Kubernetes action.
 
@@ -138,7 +168,7 @@ this specification authoring does not implement the feature or provide implement
   - _Copilot agent: @ops-union-integration-qa_
   - _Dependencies: 1.6.4-QC-7_
   - _Requirements: QC-1.1-QC-1.5, QC-2.1-QC-2.7, QC-3.1-QC-3.7, QC-4.1-QC-4.9,
-    QC-5.1-QC-5.7, QC-6.1-QC-6.7, QC-7.1-QC-7.5_
+    QC-5.1-QC-5.7, QC-6.1-QC-6.3, QC-7.1-QC-7.7, QC-8.1-QC-8.5, QC-9.1-QC-9.6_
   - _Validation: web and desktop smoke/accessibility scenarios with a written limitation record.
 
 - [ ] 1.6.4-QC-9 Converge current documentation with implementation evidence.
@@ -155,12 +185,17 @@ this specification authoring does not implement the feature or provide implement
 
 ## Definition of done
 
-- Workspace and preset names are independent top-bar controls with accessible quick selectors.
+- Workspace and preset names are independent top-bar controls with an accessible Workspace manager
+  entry point and preset quick selector.
 - Workspace switching changes catalog context without implicit preset application or pod fetching.
 - The active Workspace exposes five recent presets through the shared ordering and limit helper.
 - Quick preset selection applies the saved targets and starts exactly one pod fetch with safe loading,
   failure, and duplicate-action behavior.
 - Pending target edits require explicit confirmation before replacement.
+- Creating or switching Workspace resets the operational view, and deleting the active preset has
+  the same reset boundary.
+- The pod view supports searchable multiple-application filtering composed with the textual filter,
+  and context resets clear the application selection.
 - Full management surfaces remain reachable, and no backend/Kubernetes/persistence boundary changed.
 - Frontend automated coverage, web/desktop validation, accessibility checks, and architecture review
   are recorded before tasks are checked.
@@ -172,6 +207,12 @@ this specification authoring does not implement the feature or provide implement
 - `npm run build --workspace=@ops-union/frontend`: passed; Vite production build completed.
 - `get_errors` for all touched frontend TypeScript/CSS files: no errors.
 - `git diff --check`: passed.
+- `frontend/src/workspaces.test.ts`: source-level tests cover complete operational reset on Workspace
+  creation and switching.
+- `frontend/src/store.test.ts`: source-level tests cover reset after deleting the active preset.
+- `frontend/src/App.tsx` and `frontend/src/components/ViewToolbar.tsx`: source confirms searchable
+  multi-application selection composed with the textual pod filter and reset through the query
+  revision effect.
 - Browser/Electron interaction, responsive screenshots, and read-only architecture audit were not
   available in this session and remain open for `@ops-union-integration-qa` and
   `@ops-union-architecture-review`.

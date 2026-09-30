@@ -7,7 +7,7 @@ import { PodDetailsPanel } from './components/PodDetailsPanel';
 import { PodTable, podRowKey } from './components/PodTable';
 import { TargetErrorBanner } from './components/TargetErrorBanner';
 import { TargetSelector, WorkspaceControls } from './components/TargetSelector';
-import { ViewToolbar } from './components/ViewToolbar';
+import { ViewToolbar, type ApplicationFilterOption } from './components/ViewToolbar';
 import { getQuickPresets } from './launchpad';
 import { matchesFilter } from './podPresentation';
 import { applyPresetAndLoad } from './presetFlow';
@@ -48,6 +48,7 @@ export default function App() {
   const [health, setHealth] = useState<HealthState>('loading');
   const [selected, setSelected] = useState<PodRef | null>(null);
   const [selectedLogPods, setSelectedLogPods] = useState<PodRef[]>([]);
+  const [selectedApplications, setSelectedApplications] = useState<string[]>([]);
   const [logSources, setLogSources] = useState<LogSource[]>([]);
   const [logConsultedContexts, setLogConsultedContexts] = useState<Target[]>([]);
   const [logModal, setLogModal] = useState<LogModalState | null>(null);
@@ -222,6 +223,7 @@ export default function App() {
     setLogModal(null);
     setDetailsInitialTab('describe');
     setFilter('');
+    setSelectedApplications([]);
   }, [configurationRevision, explicitQueryRevision, setFilter]);
 
   useEffect(() => {
@@ -264,7 +266,25 @@ export default function App() {
     };
   }, []);
 
-  const visiblePods = useMemo(() => pods.filter((p) => matchesFilter(p, filter)), [filter, pods]);
+  const applicationOptions = useMemo<ApplicationFilterOption[]>(() => {
+    const counts = new Map<string, ApplicationFilterOption>();
+    for (const pod of pods) {
+      const current = counts.get(pod.application.key);
+      if (current) {
+        current.podCount += 1;
+      } else {
+        counts.set(pod.application.key, { key: pod.application.key, name: pod.application.name, podCount: 1 });
+      }
+    }
+    return [...counts.values()].sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
+  }, [pods]);
+
+  const visiblePods = useMemo(() => {
+    const selected = new Set(selectedApplications);
+    return pods.filter((pod) =>
+      (selected.size === 0 || selected.has(pod.application.key)) && matchesFilter(pod, filter),
+    );
+  }, [filter, pods, selectedApplications]);
 
   const clusterCount = useMemo(() => new Set(pods.map((p) => p.cluster)).size, [pods]);
   const namespaceCount = useMemo(() => new Set(pods.map((p) => p.namespace)).size, [pods]);
@@ -377,6 +397,9 @@ export default function App() {
               onGroupingChange={setGrouping}
               filter={filter}
               onFilterChange={setFilter}
+              applications={applicationOptions}
+              selectedApplications={selectedApplications}
+              onSelectedApplicationsChange={setSelectedApplications}
               visibleCount={visiblePods.length}
               totalCount={pods.length}
               onRefresh={() => void loadPods({ resetView: false })}

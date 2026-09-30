@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { AppWindow, Layers, RefreshCw, Rows3, Search, Server, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { AppWindow, Check, ChevronDown, Layers, ListFilter, RefreshCw, Rows3, Search, Server, X } from 'lucide-react';
 import { REFRESH_INTERVALS } from '../store';
 import type { GroupingMode } from '../types';
 
@@ -30,6 +30,9 @@ interface ViewToolbarProps {
   onGroupingChange: (grouping: GroupingMode) => void;
   filter: string;
   onFilterChange: (filter: string) => void;
+  applications: ApplicationFilterOption[];
+  selectedApplications: string[];
+  onSelectedApplicationsChange: (keys: string[]) => void;
   visibleCount: number;
   totalCount: number;
   onRefresh: () => void;
@@ -41,12 +44,21 @@ interface ViewToolbarProps {
   lastUpdatedAt?: number;
 }
 
+export interface ApplicationFilterOption {
+  key: string;
+  name: string;
+  podCount: number;
+}
+
 /** Grouping switch, text filter and refresh controls for the unified view. */
 export function ViewToolbar({
   grouping,
   onGroupingChange,
   filter,
   onFilterChange,
+  applications,
+  selectedApplications,
+  onSelectedApplicationsChange,
   visibleCount,
   totalCount,
   onRefresh,
@@ -56,7 +68,41 @@ export function ViewToolbar({
   onRefreshSecondsChange,
   lastUpdatedAt,
 }: ViewToolbarProps) {
-  const filtering = filter.trim().length > 0;
+  const filtering = filter.trim().length > 0 || selectedApplications.length > 0;
+  const [applicationMenuOpen, setApplicationMenuOpen] = useState(false);
+  const [applicationQuery, setApplicationQuery] = useState('');
+  const applicationFilterRef = useRef<HTMLDivElement>(null);
+  const selectedApplicationKeys = new Set(selectedApplications);
+  const visibleApplications = applications.filter((application) => {
+    const needle = applicationQuery.trim().toLowerCase();
+    return !needle || `${application.name} ${application.key}`.toLowerCase().includes(needle);
+  });
+
+  useEffect(() => {
+    if (!applicationMenuOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!applicationFilterRef.current?.contains(event.target as Node)) setApplicationMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setApplicationMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [applicationMenuOpen]);
+
+  const toggleApplication = (key: string) => {
+    onSelectedApplicationsChange(
+      selectedApplicationKeys.has(key)
+        ? selectedApplications.filter((selectedKey) => selectedKey !== key)
+        : [...selectedApplications, key],
+    );
+  };
   // The "last updated" label is relative, so it needs its own tick to stay honest.
   const [, forceTick] = useState(0);
   useEffect(() => {
@@ -81,6 +127,68 @@ export function ViewToolbar({
             {option.icon} {option.label}
           </button>
         ))}
+      </div>
+
+      <div className={`application-filter ${selectedApplications.length > 0 ? 'is-active' : ''}`} ref={applicationFilterRef}>
+        <button
+          type="button"
+          className="application-filter-trigger"
+          onClick={() => setApplicationMenuOpen((open) => !open)}
+          aria-expanded={applicationMenuOpen}
+          aria-controls="application-filter-menu"
+          aria-haspopup="menu"
+          title="Filter by application"
+        >
+          <ListFilter size={13} />
+          <span>Apps</span>
+          <strong>{selectedApplications.length > 0 ? selectedApplications.length : 'All'}</strong>
+          <ChevronDown size={12} />
+        </button>
+        {applicationMenuOpen && (
+          <div className="application-filter-popover" id="application-filter-menu" role="menu" aria-label="Filter by application">
+            <div className="application-filter-heading">
+              <span>Applications</span>
+              <strong>{selectedApplications.length > 0 ? `${selectedApplications.length} selected` : 'All selected'}</strong>
+            </div>
+            <label className="application-filter-search">
+              <Search size={12} />
+              <span className="visually-hidden">Search applications</span>
+              <input
+                value={applicationQuery}
+                onChange={(event) => setApplicationQuery(event.target.value)}
+                placeholder="Search applications..."
+                aria-label="Search applications"
+              />
+              {applicationQuery && (
+                <button type="button" className="filter-clear" onClick={() => setApplicationQuery('')} aria-label="Clear application search">
+                  <X size={11} />
+                </button>
+              )}
+            </label>
+            <div className="application-filter-list">
+              {visibleApplications.map((application) => (
+                <label className="application-filter-option" key={application.key}>
+                  <input
+                    type="checkbox"
+                    checked={selectedApplicationKeys.has(application.key)}
+                    onChange={() => toggleApplication(application.key)}
+                  />
+                  <span>
+                    <strong>{application.name}</strong>
+                    <small>{application.podCount} pods</small>
+                  </span>
+                  {selectedApplicationKeys.has(application.key) && <Check size={13} />}
+                </label>
+              ))}
+              {visibleApplications.length === 0 && <p className="application-filter-empty">No application matches.</p>}
+            </div>
+            {selectedApplications.length > 0 && (
+              <button type="button" className="text-button application-filter-clear" onClick={() => onSelectedApplicationsChange([])}>
+                Clear application filter
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <label className="filter-bar">
