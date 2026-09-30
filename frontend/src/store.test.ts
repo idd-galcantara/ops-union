@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createPreset } from './presets';
+import { buildTransferPlan, catalogForTransfer } from './presetTransfer';
 import { useOpsFlowStore } from './store';
 
 test('appendImportedPresets persists fresh presets without changing view state', () => {
@@ -178,6 +179,206 @@ test('bulk deletion refuses missing ids without changing the catalog', () => {
     assert.equal(stateBefore.deletePresets([preset.id, 'missing'], stateBefore.activeWorkspaceId), false);
     assert.deepEqual(useOpsFlowStore.getState().presets, [preset]);
   } finally {
+    useOpsFlowStore.setState(original);
+  }
+});
+
+test('copy transfers selected presets once, retaining the source and operational state', async () => {
+  const original = useOpsFlowStore.getState();
+  const sourcePreset = { ...createPreset('source', [{ cluster: 'c1', namespace: 'n1' }]), lastUsedAt: 20 };
+  const otherPreset = createPreset('other', [{ cluster: 'c2', namespace: 'n2' }]);
+  const source = { id: 'source-workspace', name: 'Source', presets: [sourcePreset, otherPreset] };
+  const destination = { id: 'destination-workspace', name: 'Destination', presets: [] };
+  const targets = [{ cluster: 'live', namespace: 'namespace' }];
+  const pods = [{
+    cluster: 'live', namespace: 'namespace', name: 'pod', status: 'Running', ready: '1/1', restarts: 0,
+    node: 'node', ageSeconds: 10, containers: ['app'], application: { key: 'pod:pod', name: 'pod', source: 'pod' as const },
+  }];
+  const previousLocalStorage = (globalThis as { localStorage?: unknown }).localStorage;
+  let writes = 0;
+  (globalThis as { localStorage?: unknown }).localStorage = {
+    setItem: () => { writes += 1; },
+  };
+  useOpsFlowStore.setState({
+    workspaces: [source, destination],
+    activeWorkspaceId: source.id,
+    presets: source.presets,
+    activePresetId: sourcePreset.id,
+    activePresetDirty: true,
+    targets,
+    pods,
+    filter: 'pod',
+  });
+
+  try {
+    const state = useOpsFlowStore.getState();
+    const plan = buildTransferPlan(
+      catalogForTransfer(state.workspaces, state.activeWorkspaceId, state.presets),
+      { mode: 'copy', sourceWorkspaceId: source.id, presetIds: [sourcePreset.id], destinationWorkspaceIds: [destination.id] },
+      (portable) => ({ id: 'copied-id', ...portable }),
+    );
+    assert.deepEqual(await state.transferPresets(plan), { ok: true });
+    const next = useOpsFlowStore.getState();
+    assert.equal(writes, 1);
+    assert.deepEqual(next.workspaces[0].presets, source.presets);
+    assert.equal(next.workspaces[1].presets[0].id, 'copied-id');
+    assert.equal(next.workspaces[1].presets[0].lastUsedAt, undefined);
+    assert.equal(next.activePresetId, sourcePreset.id);
+    assert.equal(next.activePresetDirty, true);
+    assert.deepEqual(next.targets, targets);
+    assert.deepEqual(next.pods, pods);
+    assert.equal(next.filter, 'pod');
+  } finally {
+    if (previousLocalStorage === undefined) delete (globalThis as { localStorage?: unknown }).localStorage;
+    else (globalThis as { localStorage?: unknown }).localStorage = previousLocalStorage;
+    useOpsFlowStore.setState(original);
+  }
+});
+
+test('move commits destination creation and source removal once, returning to the initial view when active', async () => {
+  const original = useOpsFlowStore.getState();
+  const sourcePreset = createPreset('source', [{ cluster: 'c1', namespace: 'n1' }]);
+  const source = { id: 'source-workspace', name: 'Source', presets: [sourcePreset] };
+  const destination = { id: 'destination-workspace', name: 'Destination', presets: [] };
+  const previousLocalStorage = (globalThis as { localStorage?: unknown }).localStorage;
+  let writes = 0;
+  (globalThis as { localStorage?: unknown }).localStorage = { setItem: () => { writes += 1; } };
+  useOpsFlowStore.setState({
+    workspaces: [source, destination],
+    activeWorkspaceId: source.id,
+    presets: source.presets,
+    activePresetId: sourcePreset.id,
+    activePresetDirty: true,
+    targets: [{ cluster: 'live', namespace: 'namespace' }],
+    filter: 'keep-me',
+  });
+
+  try {
+    const state = useOpsFlowStore.getState();
+    const plan = buildTransferPlan(
+      catalogForTransfer(state.workspaces, state.activeWorkspaceId, state.presets),
+      { mode: 'move', sourceWorkspaceId: source.id, presetIds: [sourcePreset.id], destinationWorkspaceIds: [destination.id] },
+      (portable) => ({ id: 'moved-id', ...portable }),
+    );
+    assert.deepEqual(await state.transferPresets(plan), { ok: true });
+    const next = useOpsFlowStore.getState();
+    assert.equal(writes, 1);
+    assert.deepEqual(next.workspaces[0].presets, []);
+    assert.equal(next.workspaces[1].presets[0].id, 'moved-id');
+    assert.equal(next.activePresetId, null);
+    assert.equal(next.activePresetDirty, false);
+    assert.deepEqual(next.targets, []);
+    assert.deepEqual(next.pods, []);
+    assert.equal(next.hasQueried, false);
+    assert.equal(next.filter, '');
+  } finally {
+    if (previousLocalStorage === undefined) delete (globalThis as { localStorage?: unknown }).localStorage;
+    else (globalThis as { localStorage?: unknown }).localStorage = previousLocalStorage;
+    useOpsFlowStore.setState(original);
+  }
+});
+
+test('a failed catalog write leaves both sides of a transfer unchanged', async () => {
+  const original = useOpsFlowStore.getState();
+  const sourcePreset = createPreset('source', [{ cluster: 'c1', namespace: 'n1' }]);
+  const source = { id: 'source-workspace', name: 'Source', presets: [sourcePreset] };
+  const destination = { id: 'destination-workspace', name: 'Destination', presets: [] };
+  const previousLocalStorage = (globalThis as { localStorage?: unknown }).localStorage;
+  (globalThis as { localStorage?: unknown }).localStorage = {
+    setItem: () => { throw new Error('storage full'); },
+  };
+  useOpsFlowStore.setState({
+    workspaces: [source, destination],
+    activeWorkspaceId: source.id,
+    presets: source.presets,
+  });
+
+  try {
+    const state = useOpsFlowStore.getState();
+    const plan = buildTransferPlan(
+      catalogForTransfer(state.workspaces, state.activeWorkspaceId, state.presets),
+      { mode: 'move', sourceWorkspaceId: source.id, presetIds: [sourcePreset.id], destinationWorkspaceIds: [destination.id] },
+      (portable) => ({ id: 'moved-id', ...portable }),
+    );
+    assert.equal((await state.transferPresets(plan)).ok, false);
+    assert.deepEqual(useOpsFlowStore.getState().workspaces, [source, destination]);
+    assert.deepEqual(useOpsFlowStore.getState().presets, source.presets);
+  } finally {
+    if (previousLocalStorage === undefined) delete (globalThis as { localStorage?: unknown }).localStorage;
+    else (globalThis as { localStorage?: unknown }).localStorage = previousLocalStorage;
+    useOpsFlowStore.setState(original);
+  }
+});
+
+test('ignore transfers only non-conflicting destinations and keeps an all-conflict preset on move', async () => {
+  const original = useOpsFlowStore.getState();
+  const blocked = createPreset('blocked', [{ cluster: 'c1', namespace: 'n1' }]);
+  const transferable = createPreset('transferable', [{ cluster: 'c2', namespace: 'n2' }]);
+  const existing = createPreset('existing', blocked.targets);
+  const source = { id: 'source-workspace', name: 'Source', presets: [blocked, transferable] };
+  const destination = { id: 'destination-workspace', name: 'Destination', presets: [existing] };
+  const previousLocalStorage = (globalThis as { localStorage?: unknown }).localStorage;
+  let writes = 0;
+  (globalThis as { localStorage?: unknown }).localStorage = { setItem: () => { writes += 1; } };
+  useOpsFlowStore.setState({
+    workspaces: [source, destination],
+    activeWorkspaceId: source.id,
+    presets: source.presets,
+    activePresetId: blocked.id,
+    targets: [{ cluster: 'live', namespace: 'keep' }],
+    filter: 'keep',
+  });
+
+  try {
+    const state = useOpsFlowStore.getState();
+    const plan = buildTransferPlan(
+      catalogForTransfer(state.workspaces, state.activeWorkspaceId, state.presets),
+      { mode: 'move', sourceWorkspaceId: source.id, presetIds: [blocked.id, transferable.id], destinationWorkspaceIds: [destination.id] },
+      (portable) => ({ id: `${portable.name}-copy`, ...portable }),
+    );
+    assert.equal(plan.conflicts.length, 1);
+    assert.deepEqual(await state.transferPresets(plan, 'ignore'), { ok: true });
+    const next = useOpsFlowStore.getState();
+    assert.equal(writes, 1);
+    assert.deepEqual(next.workspaces[0].presets.map((preset) => preset.id), [blocked.id]);
+    assert.deepEqual(next.workspaces[1].presets.map((preset) => preset.name), ['existing', 'transferable']);
+    assert.equal(next.activePresetId, blocked.id);
+    assert.equal(next.filter, 'keep');
+  } finally {
+    if (previousLocalStorage === undefined) delete (globalThis as { localStorage?: unknown }).localStorage;
+    else (globalThis as { localStorage?: unknown }).localStorage = previousLocalStorage;
+    useOpsFlowStore.setState(original);
+  }
+});
+
+test('overwrite replaces a destination semantic duplicate while keeping destination identity and usage', async () => {
+  const original = useOpsFlowStore.getState();
+  const sourcePreset = { ...createPreset('updated name', [{ cluster: 'c1', namespace: 'n1' }]), lastUsedAt: 12 };
+  const destinationPreset = { ...createPreset('old name', sourcePreset.targets), lastUsedAt: 88 };
+  const source = { id: 'source-workspace', name: 'Source', presets: [sourcePreset] };
+  const destination = { id: 'destination-workspace', name: 'Destination', presets: [destinationPreset] };
+  const previousLocalStorage = (globalThis as { localStorage?: unknown }).localStorage;
+  let writes = 0;
+  (globalThis as { localStorage?: unknown }).localStorage = { setItem: () => { writes += 1; } };
+  useOpsFlowStore.setState({ workspaces: [source, destination], activeWorkspaceId: source.id, presets: source.presets });
+
+  try {
+    const state = useOpsFlowStore.getState();
+    const plan = buildTransferPlan(
+      catalogForTransfer(state.workspaces, state.activeWorkspaceId, state.presets),
+      { mode: 'copy', sourceWorkspaceId: source.id, presetIds: [sourcePreset.id], destinationWorkspaceIds: [destination.id] },
+      () => ({ id: 'fresh-source-id', name: sourcePreset.name, targets: sourcePreset.targets }),
+    );
+    assert.deepEqual(await state.transferPresets(plan, 'overwrite'), { ok: true });
+    const nextDestination = useOpsFlowStore.getState().workspaces[1].presets[0];
+    assert.equal(writes, 1);
+    assert.equal(nextDestination.id, destinationPreset.id);
+    assert.equal(nextDestination.name, sourcePreset.name);
+    assert.equal(nextDestination.lastUsedAt, destinationPreset.lastUsedAt);
+    assert.equal(useOpsFlowStore.getState().workspaces[0].presets[0].lastUsedAt, sourcePreset.lastUsedAt);
+  } finally {
+    if (previousLocalStorage === undefined) delete (globalThis as { localStorage?: unknown }).localStorage;
+    else (globalThis as { localStorage?: unknown }).localStorage = previousLocalStorage;
     useOpsFlowStore.setState(original);
   }
 });

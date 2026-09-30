@@ -4174,9 +4174,34 @@ button {
 }
 
 .preset-library-toolbar {
-  align-items: stretch;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 8px;
   margin-top: 16px;
-  flex-wrap: wrap;
+  align-items: stretch;
+}
+
+.preset-library-search-row,
+.preset-library-save-row,
+.preset-selection-controls,
+.preset-batch-actions {
+  min-width: 0;
+}
+
+.preset-library-search-row {
+  width: 100%;
+}
+
+.preset-library-search-row .preset-search {
+  width: 100%;
+}
+
+.preset-library-save-row {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
 }
 
 .preset-library-file-actions {
@@ -4191,11 +4216,12 @@ button {
 }
 
 .preset-selection-controls {
-  display: inline-flex;
+  width: 100%;
+  display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 5px;
-  margin-left: auto;
+  padding: 2px 0;
 }
 
 .preset-selection-toggle {
@@ -4213,7 +4239,138 @@ button {
   white-space: nowrap;
 }
 
+.preset-selection-clear {
+  margin-left: auto;
+}
+
+.preset-batch-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.preset-batch-transfer-actions,
+.preset-batch-destructive-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.preset-batch-destructive-actions {
+  padding-left: 10px;
+  border-left: 1px solid var(--line-strong);
+}
+
+.preset-transfer-conflict-summary {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  padding: 9px 10px;
+  color: var(--ink);
+  background: var(--surface-muted);
+  border: 1px solid #e4a289;
+  border-left: 2px solid var(--accent);
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.preset-transfer-conflict-summary span {
+  color: var(--muted);
+}
+
+.preset-transfer-conflict-summary ul,
+.preset-transfer-conflict-list {
+  display: grid;
+  gap: 3px;
+  margin: 4px 0 0;
+  padding-left: 17px;
+}
+
+.preset-transfer-conflict-options {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.preset-transfer-conflict-options button {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 4px;
+  text-align: left;
+}
+
+.preset-transfer-conflict-option-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.preset-transfer-conflict-options small {
+  display: block;
+  margin: 0 0 0 20px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 400;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.preset-transfer-conflict-options .primary-button,
+.preset-transfer-conflict-options .primary-button small {
+  color: #fff;
+}
+
+.preset-transfer-conflict-options .primary-button small {
+  opacity: 0.88;
+}
+
+.preset-transfer-conflict-details {
+  display: grid;
+  gap: 5px;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.preset-transfer-conflict-details > strong {
+  color: var(--ink);
+  font-size: 10px;
+}
+
+.preset-transfer-conflict-list {
+  max-height: 150px;
+  overflow-y: auto;
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.preset-library .preset-selection-controls .text-button,
+.preset-library .preset-batch-actions .text-button {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .preset-delete-selected {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.preset-transfer-action {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -4287,6 +4444,76 @@ button {
   color: var(--muted);
   font-size: 10px;
   line-height: 1.55;
+}
+
+.preset-transfer-mode {
+  display: flex;
+  gap: 5px;
+  margin-top: 14px;
+}
+
+.preset-transfer-mode .is-selected {
+  color: var(--accent-hover);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.preset-transfer-workspace-list {
+  display: grid;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  margin-top: 14px;
+  padding: 2px;
+}
+
+.preset-transfer-workspace {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.preset-transfer-workspace:hover:not(.is-source) {
+  border-color: #e4a289;
+  background: var(--surface-muted);
+}
+
+.preset-transfer-workspace.is-source {
+  color: var(--muted);
+  background: var(--surface-muted);
+  cursor: not-allowed;
+}
+
+.preset-transfer-workspace input {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.preset-transfer-workspace span {
+  min-width: 0;
+}
+
+.preset-transfer-workspace strong,
+.preset-transfer-workspace small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.preset-transfer-workspace small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.preset-transfer-chooser .preset-library-feedback ul {
+  margin: 5px 0 0;
+  padding-left: 16px;
 }
 
 .destructive-confirmation-context {
@@ -4850,6 +5077,31 @@ button {
 
   .preset-library-file-actions {
     width: 100%;
+  }
+
+  .preset-library-save-row {
+    justify-content: flex-start;
+  }
+
+  .preset-batch-actions {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .preset-batch-transfer-actions,
+  .preset-batch-destructive-actions {
+    width: 100%;
+  }
+
+  .preset-batch-transfer-actions {
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .preset-batch-destructive-actions {
+    padding-left: 0;
+    border-left: 0;
   }
 
   .preset-library-file-actions .secondary-button {

@@ -27,6 +27,14 @@ import {
   orderPresetsByRecentUse,
   type Preset,
 } from '../presets';
+import {
+  buildTransferPlan,
+  catalogForTransfer,
+  entriesForTransfer,
+  type TransferConflictStrategy,
+  type TransferMode,
+  type TransferPlan,
+} from '../presetTransfer';
 import { useOpsFlowStore } from '../store';
 import { targetKey, type NamespaceInfo } from '../types';
 import { MAX_WORKSPACE_NAME_LENGTH, parseWorkspaceImportFile, validateWorkspaceName, type Workspace, type WorkspaceImportResult } from '../workspaces';
@@ -1681,6 +1689,8 @@ function PresetLibrary({
 }: PresetLibraryProps) {
   const savePreset = useOpsFlowStore((s) => s.savePreset);
   const deletePresets = useOpsFlowStore((s) => s.deletePresets);
+  const workspaces = useOpsFlowStore((s) => s.workspaces);
+  const transferPresets = useOpsFlowStore((s) => s.transferPresets);
   const [query, setQuery] = useState('');
   const [naming, setNaming] = useState(startNaming);
   const [name, setName] = useState('');
@@ -1688,7 +1698,15 @@ function PresetLibrary({
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [selectedPresetIds, setSelectedPresetIds] = useState<Set<string>>(new Set());
-  const libraryBusy = Boolean(applyingPresetId) || deletePending;
+  const [transferMode, setTransferMode] = useState<TransferMode | null>(null);
+  const [destinationWorkspaceIds, setDestinationWorkspaceIds] = useState<Set<string>>(new Set());
+  const [transferStrategy, setTransferStrategy] = useState<TransferConflictStrategy>('reject');
+  const [transferConflictDecisionOpen, setTransferConflictDecisionOpen] = useState(false);
+  const [transferConfirmationOpen, setTransferConfirmationOpen] = useState(false);
+  const [transferPending, setTransferPending] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
+  const transferTriggerRef = useRef<HTMLElement | null>(null);
+  const libraryBusy = Boolean(applyingPresetId) || deletePending || transferPending;
   const libraryRef = useRef<HTMLElement>(null);
   const deleteTriggerRef = useRef<HTMLElement | null>(null);
   const visiblePresets = useMemo(() => {
@@ -1709,6 +1727,21 @@ function PresetLibrary({
   }, [presets, query]);
   const visiblePresetIds = useMemo(() => visiblePresets.map((preset) => preset.id), [visiblePresets]);
   const selectionState = getPresetSelectionState(selectedPresetIds, visiblePresetIds);
+  const transferPlan = useMemo<TransferPlan | null>(() => {
+    if (!transferMode) return null;
+    return buildTransferPlan(
+      catalogForTransfer(workspaces, activeWorkspaceId, presets),
+      {
+        mode: transferMode,
+        sourceWorkspaceId: activeWorkspaceId,
+        presetIds: [...selectedPresetIds],
+        destinationWorkspaceIds: [...destinationWorkspaceIds],
+      },
+    );
+  }, [activeWorkspaceId, destinationWorkspaceIds, presets, selectedPresetIds, transferMode, workspaces]);
+  const sourceWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
+  const selectedPresets = presets.filter((preset) => selectedPresetIds.has(preset.id));
+  const destinationWorkspaces = workspaces.filter((workspace) => workspace.id !== activeWorkspaceId);
 
   useEffect(() => {
     setSelectedPresetIds((current) => {
@@ -1720,7 +1753,24 @@ function PresetLibrary({
 
   useEffect(() => {
     setSelectedPresetIds(new Set());
+    setTransferMode(null);
+    setDestinationWorkspaceIds(new Set());
+    setTransferStrategy('reject');
+    setTransferConflictDecisionOpen(false);
+    setTransferConfirmationOpen(false);
+    setTransferError(null);
   }, [activeWorkspaceId]);
+
+  useEffect(() => {
+    setDestinationWorkspaceIds((current) => {
+      const validIds = new Set(destinationWorkspaces.map((workspace) => workspace.id));
+      const reconciled = new Set([...current].filter((id) => validIds.has(id)));
+      if (reconciled.size === current.size && [...reconciled].every((id) => current.has(id))) return current;
+      setTransferConflictDecisionOpen(false);
+      setTransferConfirmationOpen(false);
+      return reconciled;
+    });
+  }, [destinationWorkspaces]);
 
   const confirmSave = () => {
     if (libraryBusy || !name.trim() || targets.length === 0) return;
@@ -1743,6 +1793,52 @@ function PresetLibrary({
   const closeLibrary = () => {
     if (libraryBusy) return;
     onClose();
+  };
+
+  const beginTransfer = (mode: TransferMode, trigger: HTMLElement) => {
+    if (libraryBusy || selectedPresetIds.size === 0) return;
+    transferTriggerRef.current = trigger;
+    setTransferMode(mode);
+    setDestinationWorkspaceIds(new Set());
+    setTransferStrategy('reject');
+    setTransferConflictDecisionOpen(false);
+    setTransferConfirmationOpen(false);
+    setTransferError(null);
+  };
+
+  const reviewTransfer = () => {
+    if (!transferPlan || transferPlan.entries.length === 0) return;
+    setTransferError(null);
+    if (transferPlan.conflicts.length > 0) {
+      setTransferConflictDecisionOpen(true);
+      return;
+    }
+    setTransferStrategy('reject');
+    setTransferConfirmationOpen(true);
+  };
+
+  const confirmTransfer = async () => {
+    if (!transferPlan || transferPending) return;
+    setTransferPending(true);
+    setTransferError(null);
+    await Promise.resolve();
+    try {
+      const result = await transferPresets(transferPlan, transferStrategy);
+      if (!result.ok) {
+        setTransferError(result.error ?? 'The preset transfer could not be completed.');
+        return;
+      }
+      setSelectedPresetIds(new Set());
+      setTransferConfirmationOpen(false);
+      setTransferMode(null);
+      setDestinationWorkspaceIds(new Set());
+      setTransferStrategy('reject');
+      setTransferConflictDecisionOpen(false);
+    } catch {
+      setTransferError('The preset transfer could not be completed.');
+    } finally {
+      setTransferPending(false);
+    }
   };
 
   return (
@@ -1783,31 +1879,37 @@ function PresetLibrary({
         {deleteError && <p className="preset-library-feedback is-error" role="alert">{deleteError}</p>}
 
         <div className="preset-library-toolbar">
-          {presets.length > 0 ? (
-            <label className="preset-search preset-library-search">
-              <Search size={13} />
-              <span className="visually-hidden">Search presets</span>
-              <input
-                autoFocus={!naming}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                disabled={libraryBusy}
-                placeholder="Search by name, cluster or namespace..."
-              />
-              {query && (
-                <button type="button" className="preset-search-clear" onClick={() => setQuery('')} aria-label="Clear preset search" disabled={libraryBusy}>
-                  <X size={12} />
-                </button>
-              )}
-            </label>
-          ) : <span />}
-          {targets.length > 0 && !naming && (
-            <button type="button" className="secondary-button" onClick={() => setNaming(true)} disabled={libraryBusy}>
-              <Save size={13} /> Save as new
-            </button>
-          )}
           {presets.length > 0 && (
-            <div className="preset-selection-controls">
+            <div className="preset-library-search-row">
+              <label className="preset-search preset-library-search">
+                <Search size={13} />
+                <span className="visually-hidden">Search presets</span>
+                <input
+                  autoFocus={!naming}
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  disabled={libraryBusy}
+                  placeholder="Search by name, cluster or namespace..."
+                />
+                {query && (
+                  <button type="button" className="preset-search-clear" onClick={() => setQuery('')} aria-label="Clear preset search" disabled={libraryBusy}>
+                    <X size={12} />
+                  </button>
+                )}
+              </label>
+            </div>
+          )}
+
+          {targets.length > 0 && !naming && (
+            <div className="preset-library-save-row">
+              <button type="button" className="secondary-button" onClick={() => setNaming(true)} disabled={libraryBusy}>
+                <Save size={13} /> Save as new
+              </button>
+            </div>
+          )}
+
+          {presets.length > 0 && (
+            <div className="preset-selection-controls" role="group" aria-label="Preset selection">
               <label className="preset-selection-toggle">
                 <input
                   type="checkbox"
@@ -1823,26 +1925,51 @@ function PresetLibrary({
               {selectedPresetIds.size > 0 && (
                 <>
                   <span className="preset-selection-count" role="status">{selectedPresetIds.size} selected</span>
-                  <button type="button" className="text-button" onClick={() => setSelectedPresetIds(new Set())} disabled={libraryBusy}>Clear selection</button>
-                  <button
-                    type="button"
-                    className="text-button danger-text preset-delete-selected"
-                    onClick={(event) => {
-                      setDeleteError(null);
-                      deleteTriggerRef.current = event.currentTarget;
-                      setDeleteIntent({
-                        kind: 'selected',
-                        ids: [...selectedPresetIds],
-                        presets: presets.filter((preset) => selectedPresetIds.has(preset.id)),
-                        trigger: event.currentTarget,
-                      });
-                    }}
-                    disabled={libraryBusy}
-                  >
-                    <Trash2 size={12} /> Delete selected
-                  </button>
+                  <button type="button" className="text-button preset-selection-clear" onClick={() => setSelectedPresetIds(new Set())} disabled={libraryBusy}>Clear selection</button>
                 </>
               )}
+            </div>
+          )}
+
+          {selectedPresetIds.size > 0 && (
+            <div className="preset-batch-actions" role="group" aria-label="Selected preset actions">
+              <div className="preset-batch-transfer-actions">
+                <button
+                  type="button"
+                  className="text-button preset-transfer-action"
+                  onClick={(event) => beginTransfer('copy', event.currentTarget)}
+                  disabled={libraryBusy}
+                >
+                  <Layers size={12} /> Copy to workspaces
+                </button>
+                <button
+                  type="button"
+                  className="text-button preset-transfer-action"
+                  onClick={(event) => beginTransfer('move', event.currentTarget)}
+                  disabled={libraryBusy}
+                >
+                  <Layers size={12} /> Move to workspaces
+                </button>
+              </div>
+              <div className="preset-batch-destructive-actions">
+                <button
+                  type="button"
+                  className="text-button danger-text preset-delete-selected"
+                  onClick={(event) => {
+                    setDeleteError(null);
+                    deleteTriggerRef.current = event.currentTarget;
+                    setDeleteIntent({
+                      kind: 'selected',
+                      ids: [...selectedPresetIds],
+                      presets: presets.filter((preset) => selectedPresetIds.has(preset.id)),
+                      trigger: event.currentTarget,
+                    });
+                  }}
+                  disabled={libraryBusy}
+                >
+                  <Trash2 size={12} /> Delete selected
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -1965,6 +2092,77 @@ function PresetLibrary({
             fallbackFocusRef={libraryRef}
           />
         )}
+        {transferMode && sourceWorkspace && (
+          <PresetTransferChooser
+            mode={transferMode}
+            sourceWorkspace={sourceWorkspace}
+            selectedPresets={selectedPresets}
+            destinationWorkspaces={destinationWorkspaces}
+            destinationWorkspaceIds={destinationWorkspaceIds}
+            plan={transferPlan}
+            error={transferError}
+            pending={transferPending}
+            onModeChange={(mode) => {
+              if (transferPending) return;
+              setTransferMode(mode);
+              setTransferStrategy('reject');
+              setTransferConflictDecisionOpen(false);
+              setTransferConfirmationOpen(false);
+              setTransferError(null);
+            }}
+            onToggleDestination={(id) => {
+              if (transferPending) return;
+              setDestinationWorkspaceIds((current) => {
+                const next = new Set(current);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+              });
+              setTransferConfirmationOpen(false);
+              setTransferConflictDecisionOpen(false);
+              setTransferError(null);
+            }}
+            onReview={reviewTransfer}
+            onCancel={() => {
+              if (transferPending) return;
+              setTransferMode(null);
+              setDestinationWorkspaceIds(new Set());
+              setTransferStrategy('reject');
+              setTransferConflictDecisionOpen(false);
+              setTransferConfirmationOpen(false);
+              setTransferError(null);
+            }}
+          />
+        )}
+        {transferConflictDecisionOpen && transferPlan && sourceWorkspace && (
+          <PresetTransferConflictDecision
+            plan={transferPlan}
+            mode={transferMode ?? 'copy'}
+            onCancel={() => setTransferConflictDecisionOpen(false)}
+            onChoose={(strategy) => {
+              setTransferStrategy(strategy);
+              setTransferConflictDecisionOpen(false);
+              setTransferConfirmationOpen(true);
+            }}
+          />
+        )}
+        {transferConfirmationOpen && transferPlan && sourceWorkspace && (
+          <PresetTransferConfirmation
+            plan={transferPlan}
+            strategy={transferStrategy}
+            sourceWorkspace={sourceWorkspace}
+            destinationWorkspaces={destinationWorkspaces}
+            selectedPresets={selectedPresets}
+            pending={transferPending}
+            error={transferError}
+            onCancel={() => {
+              if (!transferPending) setTransferConfirmationOpen(false);
+            }}
+            onConfirm={confirmTransfer}
+            restoreFocusRef={transferTriggerRef}
+            fallbackFocusRef={libraryRef}
+          />
+        )}
       </section>
     </div>
   );
@@ -2015,6 +2213,281 @@ function PresetDeleteConfirmation({
       restoreFocusRef={restoreFocusRef}
       fallbackFocusRef={fallbackFocusRef}
     />
+  );
+}
+
+function PresetTransferChooser({
+  mode,
+  sourceWorkspace,
+  selectedPresets,
+  destinationWorkspaces,
+  destinationWorkspaceIds,
+  plan,
+  error,
+  pending,
+  onModeChange,
+  onToggleDestination,
+  onReview,
+  onCancel,
+}: {
+  mode: TransferMode;
+  sourceWorkspace: Workspace;
+  selectedPresets: Preset[];
+  destinationWorkspaces: Workspace[];
+  destinationWorkspaceIds: Set<string>;
+  plan: TransferPlan | null;
+  error: string | null;
+  pending: boolean;
+  onModeChange: (mode: TransferMode) => void;
+  onToggleDestination: (id: string) => void;
+  onReview: () => void;
+  onCancel: () => void;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    dialogRef.current?.querySelector<HTMLElement>('button:not(:disabled)')?.focus();
+  }, []);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!pending) onCancel();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])',
+    );
+    if (!focusable || focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  return (
+    <div className="preset-dialog-layer" onMouseDown={(event) => !pending && event.target === event.currentTarget && onCancel()}>
+      <section ref={dialogRef} className="preset-secondary-dialog preset-transfer-chooser" role="dialog" aria-modal="true" aria-labelledby="preset-transfer-title" aria-busy={pending} tabIndex={-1} onKeyDown={handleKeyDown}>
+        <div className="preset-secondary-dialog-header">
+          <div>
+            <span className="eyebrow">Workspace transfer</span>
+            <h3 id="preset-transfer-title">Choose destinations</h3>
+          </div>
+          <button type="button" className="icon-button subtle" onClick={onCancel} aria-label="Close Workspace transfer" disabled={pending}><X size={15} /></button>
+        </div>
+        <div className="preset-transfer-mode" role="group" aria-label="Transfer mode">
+          <button type="button" className={`secondary-button ${mode === 'copy' ? 'is-selected' : ''}`} onClick={() => onModeChange('copy')} disabled={pending}>Copy</button>
+          <button type="button" className={`secondary-button ${mode === 'move' ? 'is-selected' : ''}`} onClick={() => onModeChange('move')} disabled={pending}>Move</button>
+        </div>
+        <p className="preset-dialog-summary">
+          {selectedPresets.length} selected preset{selectedPresets.length === 1 ? '' : 's'} from <strong>{sourceWorkspace.name}</strong>. Select one or more Workspaces.
+        </p>
+        <div className="preset-transfer-workspace-list" role="group" aria-label="Transfer destination Workspaces">
+          <label className="preset-transfer-workspace is-source">
+            <input type="checkbox" checked disabled aria-label={`${sourceWorkspace.name}, source Workspace`} />
+            <span><strong>{sourceWorkspace.name}</strong><small>Source Workspace · {sourceWorkspace.presets.length} preset{sourceWorkspace.presets.length === 1 ? '' : 's'} · not eligible as destination</small></span>
+          </label>
+          {destinationWorkspaces.map((workspace) => (
+            <label className="preset-transfer-workspace" key={workspace.id}>
+              <input
+                type="checkbox"
+                checked={destinationWorkspaceIds.has(workspace.id)}
+                onChange={() => onToggleDestination(workspace.id)}
+                disabled={pending}
+                aria-label={`Select destination Workspace ${workspace.name}`}
+              />
+              <span><strong>{workspace.name}</strong><small>{workspace.presets.length} preset{workspace.presets.length === 1 ? '' : 's'}</small></span>
+            </label>
+          ))}
+          {destinationWorkspaces.length === 0 && <p className="sidebar-hint">Create another Workspace before transferring presets.</p>}
+        </div>
+        {plan && plan.conflicts.length > 0 && (
+          <div className="preset-transfer-conflict-summary" role="status">
+            <strong>{plan.conflicts.length} destination conflict{plan.conflicts.length === 1 ? '' : 's'} found.</strong>
+            <span>{entriesForTransfer(plan, 'ignore').length} record{entriesForTransfer(plan, 'ignore').length === 1 ? '' : 's'} can transfer without replacing anything.</span>
+            <ul>{plan.conflicts.map((conflict, index) => <li key={`${conflict.kind}-${conflict.sourcePresetId ?? 'catalog'}-${index}`}>{conflict.message}</li>)}</ul>
+          </div>
+        )}
+        {error && <p className="preset-library-feedback is-error" role="alert" aria-live="polite">{error}</p>}
+        {plan && plan.conflicts.length === 0 && destinationWorkspaceIds.size > 0 && (
+          <p className="preset-library-status" role="status" aria-live="polite">{plan.entries.length} destination record{plan.entries.length === 1 ? '' : 's'} ready for review.</p>
+        )}
+        <div className="preset-secondary-dialog-actions">
+          <button type="button" className="secondary-button" onClick={onCancel} disabled={pending}>Cancel</button>
+          <button type="button" className="primary-button" onClick={onReview} disabled={pending || !plan || plan.entries.length === 0}>
+            <Check size={13} /> {plan?.conflicts.length ? 'Review conflict options' : `Review ${mode}`}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function PresetTransferConflictDecision({
+  plan,
+  mode,
+  onCancel,
+  onChoose,
+}: {
+  plan: TransferPlan;
+  mode: TransferMode;
+  onCancel: () => void;
+  onChoose: (strategy: 'ignore' | 'overwrite') => void;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const transferableWithoutOverwrite = entriesForTransfer(plan, 'ignore');
+  const conflictMessages = plan.conflicts.map((conflict, index) => (
+    <li key={`${conflict.kind}-${conflict.sourcePresetId ?? 'catalog'}-${index}`}>{conflict.message}</li>
+  ));
+
+  useEffect(() => {
+    dialogRef.current?.querySelector<HTMLElement>('button:not(:disabled)')?.focus();
+  }, []);
+
+  return (
+    <div className="preset-dialog-layer" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
+      <section ref={dialogRef} className="preset-secondary-dialog preset-transfer-conflict-dialog" role="dialog" aria-modal="true" aria-labelledby="preset-transfer-conflict-title">
+        <div className="preset-secondary-dialog-header">
+          <div>
+            <span className="eyebrow">Review destination conflicts</span>
+            <h3 id="preset-transfer-conflict-title">Choose how to continue</h3>
+          </div>
+          <button type="button" className="icon-button subtle" onClick={onCancel} aria-label="Cancel conflict decision"><X size={15} /></button>
+        </div>
+        <p className="preset-dialog-summary">
+          {plan.conflicts.length} conflict{plan.conflicts.length === 1 ? '' : 's'} found. Choose how to handle them before confirming the {mode}.
+        </p>
+        <div className="preset-transfer-conflict-options">
+          <button type="button" className="secondary-button" onClick={() => onChoose('ignore')}>
+            <span className="preset-transfer-conflict-option-title"><X size={13} /> <strong>Ignore conflicts</strong></span>
+            <small>Transfer {transferableWithoutOverwrite.length} preset{transferableWithoutOverwrite.length === 1 ? '' : 's'} without conflict. Leave the rest at the source.</small>
+          </button>
+          <button type="button" className="primary-button" onClick={() => onChoose('overwrite')}>
+            <span className="preset-transfer-conflict-option-title"><Check size={13} /> <strong>Overwrite conflicts</strong></span>
+            <small>Transfer all {plan.entries.length} presets and replace matching presets in the destination.</small>
+          </button>
+        </div>
+        <div className="preset-transfer-conflict-details">
+          <strong>Conflicting presets</strong>
+          <ul className="preset-transfer-conflict-list">{conflictMessages}</ul>
+        </div>
+        <div className="preset-secondary-dialog-actions">
+          <button type="button" className="secondary-button" onClick={onCancel}>Cancel</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function PresetTransferConfirmation({
+  plan,
+  strategy,
+  sourceWorkspace,
+  destinationWorkspaces,
+  selectedPresets,
+  pending,
+  error,
+  onCancel,
+  onConfirm,
+  restoreFocusRef,
+  fallbackFocusRef,
+}: {
+  plan: TransferPlan;
+  strategy: TransferConflictStrategy;
+  sourceWorkspace: Workspace;
+  destinationWorkspaces: Workspace[];
+  selectedPresets: Preset[];
+  pending: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onConfirm: () => void | Promise<void>;
+  restoreFocusRef: { current: HTMLElement | null };
+  fallbackFocusRef: { current: HTMLElement | null };
+}) {
+  const titleId = useId();
+  const descriptionId = useId();
+  const dialogRef = useRef<HTMLElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const destinationNames = destinationWorkspaces
+    .filter((workspace) => plan.intent.destinationWorkspaceIds.includes(workspace.id))
+    .map((workspace) => workspace.name);
+  const effectiveEntries = entriesForTransfer(plan, strategy);
+  const effectiveSourceIds = new Set(effectiveEntries.map((entry) => entry.sourcePresetId));
+
+  useEffect(() => {
+    cancelRef.current?.focus();
+    return () => {
+      const trigger = restoreFocusRef.current;
+      const fallback = fallbackFocusRef.current;
+      if (trigger && document.contains(trigger)) trigger.focus();
+      else if (fallback && document.contains(fallback)) fallback.focus();
+    };
+  }, [fallbackFocusRef, restoreFocusRef]);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!pending) onCancel();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+    );
+    if (!focusable || focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  return (
+    <div className="preset-dialog-layer destructive-confirmation-layer" onMouseDown={(event) => !pending && event.target === event.currentTarget && onCancel()}>
+      <section ref={dialogRef} className="preset-secondary-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} aria-busy={pending} tabIndex={-1} onKeyDown={handleKeyDown} onMouseDown={(event) => event.stopPropagation()}>
+        <div className="preset-secondary-dialog-header">
+          <div><span className="eyebrow">Review Workspace transfer</span><h3 id={titleId}>{plan.intent.mode === 'copy' ? 'Copy presets?' : 'Move presets?'}</h3></div>
+          <button type="button" className="icon-button subtle" onClick={onCancel} aria-label="Cancel Workspace transfer" disabled={pending}><X size={15} /></button>
+        </div>
+        <p className="preset-dialog-summary" id={descriptionId}>
+          {plan.intent.mode === 'copy'
+            ? 'The source records will remain unchanged.'
+            : 'Destination records will be created before the selected source records are removed in one catalog commit.'}
+        </p>
+        <div className="destructive-confirmation-context">
+          <p><strong>Source:</strong> {sourceWorkspace.name}</p>
+          <p><strong>Presets:</strong> {selectedPresets.length} selected</p>
+          <p><strong>Destinations:</strong> {destinationNames.length} Workspace{destinationNames.length === 1 ? '' : 's'}: {destinationNames.join(', ')}</p>
+          <p><strong>Records to transfer:</strong> {effectiveEntries.length} of {plan.entries.length}</p>
+          {plan.conflicts.length > 0 && <p><strong>Conflicts:</strong> {plan.conflicts.length} ({strategy === 'overwrite' ? 'overwrite selected' : 'ignored'})</p>}
+          {plan.intent.mode === 'move' && <p><strong>Source records removed:</strong> {effectiveSourceIds.size}; only presets transferred to at least one destination are removed.</p>}
+          <ul>{selectedPresets.map((preset) => <li key={preset.id}>{preset.name}</li>)}</ul>
+        </div>
+        {error && <p className="preset-library-feedback is-error" role="alert" aria-live="polite">{error}</p>}
+        <div className="preset-secondary-dialog-actions">
+          <button ref={cancelRef} type="button" className="secondary-button" onClick={onCancel} disabled={pending}>Cancel</button>
+          <button type="button" className="primary-button" onClick={() => void onConfirm()} disabled={pending}>
+            {pending ? <Loader size={13} className="spinning" /> : <Check size={13} />}
+            {pending ? 'Transferring...' : `Confirm ${plan.intent.mode}`}
+          </button>
+        </div>
+      </section>
+    </div>
   );
 }
 

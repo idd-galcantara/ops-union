@@ -14,6 +14,7 @@ import {
   getInitialWorkspaceCatalog,
   loadWorkspaceCatalog,
   persistWorkspaceCatalog,
+  persistWorkspaceCatalogAndWait,
   serializeWorkspace,
   serializeWorkspaceBundle,
   validateWorkspaceName,
@@ -21,6 +22,14 @@ import {
   type WorkspaceCatalog,
   type WorkspaceImportResult,
 } from './workspaces';
+import {
+  catalogForTransfer,
+  entriesForTransfer,
+  transferEntryKey,
+  validateTransferPlan,
+  type TransferConflictStrategy,
+  type TransferPlan,
+} from './presetTransfer';
 import {
   targetKey,
   type ContextInfo,
@@ -34,6 +43,11 @@ import {
 
 export interface WorkspaceImportOptions {
   overwrite?: boolean;
+}
+
+export interface TransferResult {
+  ok: boolean;
+  error?: string;
 }
 
 /** Auto-refresh intervals offered in the UI, in seconds. 0 means off. */
@@ -117,6 +131,7 @@ interface OpsFlowState {
   applyPreset: (id: string) => void;
   deletePreset: (id: string) => void;
   deletePresets: (ids: string[], expectedWorkspaceId: string) => boolean;
+  transferPresets: (plan: TransferPlan, strategy?: TransferConflictStrategy) => Promise<TransferResult>;
   appendImportedPresets: (presets: PortablePreset[]) => void;
   clearPresets: () => void;
 }
@@ -708,6 +723,116 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
       ...(wasActive ? { activePresetId: null, activePresetDirty: false } : {}),
     }));
     return true;
+  },
+
+  transferPresets: async (plan, strategy = 'reject') => {
+    const state = get();
+    if (plan.intent.presetIds.length === 0 || plan.intent.destinationWorkspaceIds.length === 0) {
+      return { ok: false, error: 'Select at least one preset and one destination Workspace.' };
+    }
+
+    const catalog = catalogForTransfer(state.workspaces, state.activeWorkspaceId, state.presets);
+    const conflicts = validateTransferPlan(plan, catalog);
+    const planConflictKeys = new Set(
+      plan.conflicts
+        .filter((conflict) => conflict.sourcePresetId && conflict.destinationWorkspaceId)
+        .map((conflict) => transferEntryKey(conflict.sourcePresetId!, conflict.destinationWorkspaceId!)),
+    );
+    const currentConflictKeys = new Set(
+      conflicts
+        .filter((conflict) => conflict.sourcePresetId && conflict.destinationWorkspaceId)
+        .map((conflict) => transferEntryKey(conflict.sourcePresetId!, conflict.destinationWorkspaceId!)),
+    );
+    const unresolvedConflicts = conflicts.filter((conflict) => {
+      const keyed = conflict.sourcePresetId && conflict.destinationWorkspaceId;
+      if (!keyed) return true;
+      if (strategy === 'reject') return true;
+      return !planConflictKeys.has(transferEntryKey(conflict.sourcePresetId!, conflict.destinationWorkspaceId!));
+    });
+    if (unresolvedConflicts.length > 0 || (strategy !== 'reject' && planConflictKeys.size !== currentConflictKeys.size)) {
+      return { ok: false, error: (unresolvedConflicts[0] ?? conflicts[0])?.message ?? 'Review the preset transfer again.' };
+    }
+
+    const source = catalog.workspaces.find((workspace) => workspace.id === plan.intent.sourceWorkspaceId);
+    if (!source || plan.intent.sourceWorkspaceId !== state.activeWorkspaceId) {
+      return { ok: false, error: 'The source Workspace is no longer active.' };
+    }
+
+    const entries = entriesForTransfer(plan, strategy);
+    if (entries.length === 0) return { ok: true };
+    const selectedIds = new Set(plan.intent.presetIds);
+    const transferredSourceIds = new Set<string>();
+    const entriesByDestination = new Map<string, typeof plan.entries>();
+    for (const entry of entries) {
+      const entries = entriesByDestination.get(entry.destinationWorkspaceId) ?? [];
+      entries.push(entry);
+      entriesByDestination.set(entry.destinationWorkspaceId, entries);
+    }
+    const now = new Date().toISOString();
+    const nextWorkspaces = catalog.workspaces.map((workspace) => {
+      const destinationEntries = entriesByDestination.get(workspace.id) ?? [];
+      const nextPresets = [...workspace.presets];
+      const semanticIndexes = new Map(nextPresets.map((preset, index) => [presetSemanticKey(preset.targets), index]));
+      const incomingSourceByKey = new Map<string, string>();
+      for (const entry of destinationEntries) {
+        const semanticKey = presetSemanticKey(entry.preset.targets);
+        const existingIndex = semanticIndexes.get(semanticKey);
+        if (existingIndex === undefined) {
+          semanticIndexes.set(semanticKey, nextPresets.length);
+          nextPresets.push(entry.preset);
+          incomingSourceByKey.set(semanticKey, entry.sourcePresetId);
+          continue;
+        }
+        if (strategy !== 'overwrite') continue;
+        const existing = nextPresets[existingIndex];
+        nextPresets[existingIndex] = {
+          ...entry.preset,
+          id: existing.id,
+          ...(existing.lastUsedAt === undefined ? {} : { lastUsedAt: existing.lastUsedAt }),
+        };
+        incomingSourceByKey.set(semanticKey, entry.sourcePresetId);
+      }
+      incomingSourceByKey.forEach((sourcePresetId) => transferredSourceIds.add(sourcePresetId));
+      const retained = workspace.id === source.id && plan.intent.mode === 'move'
+        ? nextPresets.filter((preset) => !selectedIds.has(preset.id))
+        : nextPresets;
+      if (destinationEntries.length === 0 && retained === workspace.presets) return workspace;
+      return {
+        ...workspace,
+        presets: retained,
+        updatedAt: now,
+      };
+    });
+
+    if (plan.intent.mode === 'move') {
+      const sourceIndex = nextWorkspaces.findIndex((workspace) => workspace.id === source.id);
+      const nextSource = nextWorkspaces[sourceIndex];
+      if (nextSource) {
+        nextWorkspaces[sourceIndex] = {
+          ...nextSource,
+          presets: source.presets.filter((preset) => !transferredSourceIds.has(preset.id)),
+        };
+      }
+    }
+    const nextCatalog = {
+      version: 1 as const,
+      activeWorkspaceId: state.activeWorkspaceId,
+      workspaces: nextWorkspaces,
+    };
+
+    if (!(await persistWorkspaceCatalogAndWait(nextCatalog))) {
+      return { ok: false, error: 'The preset transfer could not be persisted.' };
+    }
+
+    const nextActiveWorkspace = nextWorkspaces.find((workspace) => workspace.id === state.activeWorkspaceId);
+    const movedActive = plan.intent.mode === 'move' && state.activePresetId !== null && transferredSourceIds.has(state.activePresetId);
+    set({
+      workspaces: nextWorkspaces,
+      presets: nextActiveWorkspace?.presets ?? [],
+      ...(movedActive ? { activePresetId: null, activePresetDirty: false } : {}),
+    });
+    if (movedActive) resetWorkspaceView();
+    return { ok: true };
   },
 
   appendImportedPresets: (importedPresets) => {

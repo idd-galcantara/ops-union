@@ -367,14 +367,29 @@ export async function loadWorkspaceCatalog(): Promise<WorkspaceCatalog> {
   return catalog;
 }
 
-export function persistWorkspaceCatalog(catalog: WorkspaceCatalog): void {
+export function persistWorkspaceCatalog(catalog: WorkspaceCatalog): boolean {
   const serialized = JSON.stringify(catalog);
+  let persisted = true;
   try {
     if (typeof localStorage !== 'undefined') localStorage.setItem(WORKSPACE_STORAGE_KEY, serialized);
   } catch {
-    // Keep the last in-memory catalog; callers retain the existing local error behavior.
+    persisted = false;
   }
   if (typeof window !== 'undefined' && window.opsFlowDesktop) {
     void window.opsFlowDesktop.savePresets(catalog).catch(() => undefined);
+  }
+  return persisted;
+}
+
+export async function persistWorkspaceCatalogAndWait(catalog: WorkspaceCatalog): Promise<boolean> {
+  const serialized = JSON.stringify(catalog);
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(WORKSPACE_STORAGE_KEY, serialized);
+    if (typeof window !== 'undefined' && window.opsFlowDesktop) {
+      await window.opsFlowDesktop.savePresets(catalog);
+    }
+    return true;
+  } catch {
+    return false;
   }
 }

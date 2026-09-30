@@ -2,9 +2,10 @@
 
 ## Status and scope
 
-This is the planned v1.7.1 specification for copying and moving selected presets from the Active
+This is the v1.7.1 release specification for copying and moving selected presets from the Active
 Workspace to one or more other Workspaces. It builds on the v1.7.0 preset selection contract and the
-existing Workspace/preset persistence and custom confirmation patterns.
+existing Workspace/preset persistence and custom confirmation patterns. Implementation and validation
+evidence are recorded in `tasks.md`.
 
 The scope covers:
 
@@ -13,7 +14,7 @@ The scope covers:
 - copying while retaining the source records;
 - moving by creating destination records and removing source records only after successful creation;
 - fresh ids and local metadata for every destination record;
-- deterministic conflict and duplicate handling; and
+- per-destination conflict decisions and deterministic duplicate handling; and
 - atomic, no-apply, no-Kubernetes behavior.
 
 The source is always the Active Workspace when the transfer flow starts. The destination chooser
@@ -111,25 +112,28 @@ reference while preserving the live operational view.
 
 1. Before confirmation, the transfer plan SHALL detect conflicts independently for each destination
    using the existing target normalization and semantic-duplicate rules.
-2. A semantic duplicate in any destination SHALL be a blocking conflict for the complete transfer
-   plan. The UI SHALL identify the destination, source preset, and conflicting existing or planned
-   target set.
-3. Two selected source presets with the same normalized target set SHALL also be reported as a
-   planned-destination conflict rather than silently creating ambiguous duplicate records.
+2. A semantic duplicate SHALL be reported independently for each preset plus destination
+   combination. The UI SHALL identify the destination, source preset, and conflicting existing or
+   planned target set before the final confirmation.
+3. Two selected source presets with the same normalized target set SHALL be reported as planned
+   destination conflicts. `Ignore conflicts` transfers the non-conflicting combinations only;
+   `Overwrite conflicts` uses the deterministic last selected combination for a repeated planned
+   target key.
 4. Presets with the same display name but different normalized targets SHALL be allowed because name
    is not the existing preset identity. The confirmation SHALL still show the number of records that
    will be created.
 5. The source Workspace SHALL be excluded from conflict planning by being ineligible as a destination;
    the operation SHALL not silently turn a copy or move into a no-op.
-6. A blocking conflict SHALL prevent confirmation/commit and SHALL leave every Workspace, active
-   reference, selection, and operational state unchanged. The user may revise destinations or source
-   selection and rebuild the plan.
+6. If conflicts exist, the UI SHALL require an explicit `Ignore conflicts` or `Overwrite conflicts`
+   decision before final confirmation. `Ignore conflicts` SHALL leave conflicting combinations at
+   the source; `Overwrite conflicts` SHALL replace matching destination records. `Cancel` SHALL
+   leave every Workspace, active reference, selection, and operational state unchanged.
 7. Concurrent catalog changes, missing source ids, or changed destination membership SHALL trigger
    revalidation and a safe plan-invalidated outcome, never a best-effort partial transfer.
 
 **Acceptance criteria:** Existing semantic duplicates and duplicate planned target sets are visible
-and block the whole operation; name-only collisions are allowed; conflicts and concurrent changes
-produce no partial catalog mutation.
+per destination; explicit ignore or overwrite decisions are required before mutation; name-only
+collisions are allowed; and concurrent changes produce no partial catalog mutation.
 
 ### TR-5 - Confirmation, failure, and accessibility
 
@@ -174,7 +178,8 @@ no apply/query/Kubernetes path, no new persistence boundary, and unchanged sourc
 - Transferring Workspaces themselves or exporting all Workspaces as one document.
 - Applying or preview-running copied/moved presets against Kubernetes.
 - Cross-profile, cloud, team, or server synchronization.
-- Partial success, per-record skip, overwrite, or automatic conflict renaming in v1.7.1.
+- Automatic conflict renaming or silent best-effort partial success in v1.7.1. Explicit per-entry
+   ignore and overwrite decisions are in scope.
 - Changing preset name uniqueness or semantic-duplicate rules outside this transfer operation.
 
 ## Risks
@@ -182,8 +187,8 @@ no apply/query/Kubernetes path, no new persistence boundary, and unchanged sourc
 - A multi-destination move can become destructive if source removal is not included in the same
   accepted catalog commit as destination creation.
 - Concurrent Workspace changes can make a precomputed plan stale.
-- A destination with a semantic duplicate can create confusing duplicate-looking rows if conflict
-  checks use names instead of normalized targets.
+- A multi-destination decision can remove a source preset too early if move removal is based on
+   selection rather than entries effectively transferred to at least one destination.
 - Copying an active preset must not accidentally change active reference or trigger application.
 - Fresh metadata may be lost if the implementation clones the full source object rather than using
   the portable preset fields.
@@ -196,8 +201,8 @@ no apply/query/Kubernetes path, no new persistence boundary, and unchanged sourc
   persistence succeed.
 - Destination records use fresh ids and local metadata while preserving name, description, and
   normalized targets without inheriting usage/active metadata.
-- Semantic conflicts block the complete plan before mutation; name-only collisions are allowed; no
-  partial success or overwrite occurs.
+- Semantic conflicts are shown per preset/destination before mutation; explicit ignore or overwrite
+   applies the selected combinations atomically, while name-only collisions remain allowed.
 - Active-preset copy/move behavior, operational-state preservation, no-apply/no-Kubernetes behavior,
   cancellation, failure, accessibility, and atomicity are validated and recorded.
 - No source code, package version, release artifact, commit, or tag is part of this spec-authoring

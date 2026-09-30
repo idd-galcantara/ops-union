@@ -2,8 +2,10 @@
 
 ## Release status
 
-This is a planned design for v1.7.1. It defines the transfer contract without claiming source or
-validation evidence.
+The transfer implementation is included in the v1.7.1 release candidate. Focused frontend/store
+validation, workspace typechecks, the complete build, and Linux packaging are recorded in `tasks.md`.
+UI component/keyboard/responsive execution, architecture review, and web/desktop smoke QA remain
+pending because those checks were not available in this session.
 
 ## Overview
 
@@ -82,10 +84,11 @@ The pure plan step:
 2. Re-resolves every destination id and rejects the source Workspace as a destination.
 3. Copies only portable preset fields: name, optional description, and normalized targets.
 4. Generates independent destination ids and fresh local metadata for each destination record.
-5. Checks semantic target duplicates against each destination and within the planned destination set.
+5. Checks semantic target duplicates against each destination and within the planned destination set,
+  retaining the source preset plus destination Workspace identity for every conflict.
 6. Allows same-name records when normalized targets differ, because names are not preset identity.
-7. Returns blocking conflicts instead of silently skipping, overwriting, renaming, or partially
-   planning records.
+7. Returns all planned entries plus per-entry conflicts. The UI requires an explicit conflict
+  strategy before confirmation rather than silently skipping or overwriting records.
 
 No plan step calls persistence, `applyPreset`, `applyPresetAndLoad`, `loadPods`, or Kubernetes.
 
@@ -94,7 +97,8 @@ No plan step calls persistence, `applyPreset`, `applyPresetAndLoad`, `loadPods`,
 ```text
 source library idle
   -> transfer chooser open
-  -> valid plan / blocking conflict
+  -> valid plan / reviewable conflicts
+  -> conflict decision (ignore or overwrite)
   -> confirmation open (catalog unchanged)
   -> pending atomic catalog commit
   -> copy: destinations added, source retained
@@ -102,9 +106,9 @@ source library idle
   -> catalog settled; transfer state cleared
 ```
 
-Cancel, conflict, invalidation, or failure returns to a usable source library with the last confirmed
-catalog and operational state. A blocking conflict does not open the destructive confirmation until
-the plan is corrected.
+Cancel, invalidation, or failure returns to a usable source library with the last confirmed catalog
+and operational state. A conflict decision does not mutate the catalog; only the final confirmation
+can commit the selected entries.
 
 ### Copy commit
 
@@ -140,14 +144,25 @@ but must not clear or reapply targets.
 
 Semantic duplicate identity uses the existing normalized, sorted, unique target-pair rule. For each
 destination, the plan compares every incoming target set with existing destination presets and with
-other incoming entries. Any match is a blocking conflict reported with source and destination
-context. This makes the multi-destination operation all-or-nothing and avoids hidden per-destination
-partial success.
+other incoming entries. Any match is a conflict reported with source and destination context. The
+decision is applied independently to each preset plus destination combination:
 
-Name-only collisions are allowed. The confirmation reports the number of records to create, and the
-library may show equal names with their existing target summaries. There is no overwrite, automatic
-suffix, or per-record skip in this release. A concurrent change that introduces a conflict causes
-plan invalidation and requires a new review.
+- `Ignore conflicts` commits only entries without a conflict. A move removes a source preset only
+  when at least one of its entries was committed; a preset whose every destination conflicts stays
+  at the source.
+- `Overwrite conflicts` commits every planned entry. Existing semantic duplicates are replaced with
+  the destination record identity preserved when possible and the destination usage metadata kept;
+  source `lastUsedAt` is never copied. For repeated planned target keys, the last selected entry is
+  deterministic and is the effective move winner.
+- `Cancel` leaves the catalog and operational state unchanged.
+
+The catalog is still committed once for the chosen action, so an explicit partial decision cannot
+expose a partially persisted move.
+
+Name-only collisions are allowed. The conflict decision and final confirmation report both the total
+planned records and the records effective under the chosen strategy, and the library may show equal
+names with their existing target summaries. A concurrent change invalidates the plan and requires a
+new review.
 
 ## UI, confirmation, and accessibility
 

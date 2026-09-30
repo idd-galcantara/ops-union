@@ -1,7 +1,7 @@
 # Implementation Tasks - ops-union v1.7.1 preset copy and move between Workspaces
 
-These tasks describe planned implementation and validation work. They are intentionally unchecked;
-specification authoring does not implement the feature or provide implementation evidence.
+These tasks record the implementation and validation work for v1.7.1. Completed evidence is captured
+below; remaining unchecked items identify validation that was not available in this release session.
 
 ## Ownership and sequencing
 
@@ -37,11 +37,12 @@ specification authoring does not implement the feature or provide implementation
   - _Validation: chooser tests for one/many destinations, source exclusion, removed Workspace,
     keyboard navigation, focus, and cancellation.
 
-- [ ] 1.7.1-TR-3 Implement a pure transfer-plan and conflict validator.
+- [x] 1.7.1-TR-3 Implement a pure transfer-plan and conflict validator.
   - Resolve stable source/destination ids, normalize portable fields, generate fresh destination ids
     and metadata, and calculate the complete record count before persistence.
   - Detect per-destination semantic duplicates, duplicate planned target sets, missing records, and
-    concurrent changes; allow name-only collisions; block rather than partially skip/overwrite.
+    concurrent changes; allow name-only collisions; retain all entries with per-entry conflict keys
+    for the later Ignore/Overwrite decision.
   - _Copilot agent: @ops-union-frontend_
   - _Dependencies: 1.7.1-TR-2
   - _Requirements: TR-2.3-TR-2.4, TR-4.1-TR-4.7, TR-6.1-TR-6.5_
@@ -50,9 +51,9 @@ specification authoring does not implement the feature or provide implementation
 
 ## Phase 2 - Copy and move commits
 
-- [ ] 1.7.1-TR-4 Implement atomic copy commit.
-  - Revalidate the plan at submit, append independent destination records, retain the complete source,
-    and persist one next catalog through the existing boundary.
+- [x] 1.7.1-TR-4 Implement atomic copy commit.
+  - Revalidate the plan at submit, apply the chosen per-entry conflict strategy, retain the complete
+    source, and persist one next catalog through the existing boundary.
   - Preserve source active reference and all operational state; never apply or query copied presets.
   - _Copilot agent: @ops-union-frontend_
   - _Dependencies: 1.7.1-TR-3
@@ -60,9 +61,10 @@ specification authoring does not implement the feature or provide implementation
   - _Validation: store tests for one/many sources and destinations, fresh ids, source preservation,
     active copy, exact one commit, failed write, and no apply/load/Kubernetes calls.
 
-- [ ] 1.7.1-TR-5 Implement atomic move commit.
-  - Revalidate every source and destination, construct one next catalog containing all destination
-    records and removing the selected source records, then persist it once.
+- [x] 1.7.1-TR-5 Implement atomic move commit.
+  - Revalidate every source and destination, construct one next catalog containing the effective
+    destination records and removing only source records transferred to at least one destination,
+    then persist it once.
   - Ensure a destination or write failure leaves both source and destinations unchanged; do not loop
     independent creates/deletes or expose an intermediate source-removed state.
   - Reconcile the active reference when the moved selection includes the active preset without
@@ -74,8 +76,9 @@ specification authoring does not implement the feature or provide implementation
     atomic failure/rollback, concurrent invalidation, one commit, and no apply/load/Kubernetes calls.
 
 - [ ] 1.7.1-TR-6 Add confirmation and pending/error presentation.
-  - Show mode, source/destination context, selected names/counts, record count, conflict status, and
-    move-specific source-removal/active-reference impact.
+  - Show mode, source/destination context, selected names/counts, planned/effective record counts,
+    conflict status, explicit Ignore/Overwrite/Cancel choices, and move-specific source-removal/
+    active-reference impact.
   - Implement existing dialog focus, Escape/backdrop, pending, duplicate-submit, safe-error, and
     source-list preservation behavior.
   - _Copilot agent: @ops-union-frontend_
@@ -86,7 +89,7 @@ specification authoring does not implement the feature or provide implementation
 
 ## Phase 3 - Regression and boundary validation
 
-- [ ] 1.7.1-TR-7 Validate active references and operational-state preservation.
+- [x] 1.7.1-TR-7 Validate active references and operational-state preservation.
   - Verify copied active presets remain active and moved active presets clear/reconcile the saved
     reference only.
   - Assert targets, namespaces, pods, filters, logs, selected details, loading/errors, and query
@@ -98,8 +101,8 @@ specification authoring does not implement the feature or provide implementation
     inactive, mixed, cancelled, conflicted, and failed plans.
 
 - [ ] 1.7.1-TR-8 Audit ownership, atomicity, and read-only boundaries.
-  - Confirm one frontend/store owner, fresh destination ids/metadata, no partial move state, no
-    overwrite/skip policy, no backend/Kubernetes/filesystem path, and no apply/query invocation.
+  - Confirm one frontend/store owner, fresh destination ids/metadata, no partial move state, explicit
+    overwrite/ignore policy, no backend/Kubernetes/filesystem path, and no apply/query invocation.
   - _Copilot agent: @ops-union-architecture-review_
   - _Dependencies: 1.7.1-TR-7
   - _Requirements: TR-3.1-TR-6, Definition of done_
@@ -131,15 +134,30 @@ specification authoring does not implement the feature or provide implementation
 
 - Multiple selected presets can be copied or moved to multiple other Workspaces through an explicit
   destination chooser, transfer plan, and confirmation.
-- Copy retains source records; move commits all destination creation and source removal atomically,
-  with no partial success on conflict or failure.
+- Copy retains source records; move commits the chosen destination entries and effective source
+  removal atomically, with no partial catalog mutation on validation or persistence failure.
 - Destination records have fresh ids/local metadata and preserve only portable preset meaning.
-- Semantic conflicts block the complete operation, name-only collisions are allowed, and no
-  overwrite, automatic rename, or per-record skip occurs.
+- Semantic conflicts are reviewed per preset/destination; explicit Ignore or Overwrite choices are
+  applied atomically, name-only collisions remain allowed, and no automatic rename occurs.
 - Active copy/move, live-state preservation, no-apply/no-Kubernetes, accessibility, responsive,
   failure, and platform-boundary evidence is recorded before completion.
 
 ## Validation record
 
-No implementation or validation evidence is recorded yet. This section is reserved for the
-implementation, QA, and architecture agents after the approved tasks are executed.
+- `frontend/src/presetTransfer.test.ts` covers fresh portable records, normalized targets,
+  missing/source-destination validation, semantic conflicts, planned duplicates, and allowed
+  name-only collisions. The plan retains conflicts per preset/destination for explicit resolution.
+- `frontend/src/store.test.ts` covers one-commit copy and move, source retention/removal,
+  active-reference reconciliation, operational-state preservation, failed persistence with
+  no catalog mutation, partial Ignore moves, all-destination conflicts, and destination-identity
+  preserving Overwrite.
+- `npm test --workspace=frontend`: 137 passed (including the transfer/store coverage).
+- `npm test --workspace=backend`: 98 passed.
+- `npm run typecheck`: backend, frontend, and desktop passed.
+- `npm run build`: backend, frontend, and desktop passed.
+- `npm run package:linux`: passed, producing the v1.7.1 AppImage and `.deb` artifacts.
+- `npm ci`: passed. The root install reports the existing moderate audit finding; no new
+  dependency change was introduced by this release.
+- `git diff --check`: passed.
+- UI component/keyboard/responsive execution, architecture review, and web/desktop smoke QA remain
+  pending; they were not available in this session and are intentionally not marked complete.
