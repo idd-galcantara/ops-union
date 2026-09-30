@@ -3,8 +3,9 @@
 Visualização unificada e read-only de recursos Kubernetes (pods, describe, métricas, logs)
 agregados de **múltiplos clusters e múltiplos namespaces** ao mesmo tempo, por uma interface web local.
 
-O estado atual inclui a release **v1.6.0**, que organiza os presets locais em Workspaces nomeados,
-com persistencia web/desktop, migracao da biblioteca plana legada e portabilidade do Workspace ativo.
+O estado atual inclui a release **v1.6.1**, que organiza os presets locais em Workspaces nomeados,
+com persistencia web/desktop, migracao da biblioteca plana legada, portabilidade do Workspace ativo
+e acesso aos logs pelo detalhe do pod.
 
 ## Problema
 
@@ -140,6 +141,12 @@ Browser: visão unificada com agrupamento (namespace | cluster | flat),
   mantido pelo IPC existente.
 - **Entregável:** Workspaces locais portáteis sem alterar a sessão operacional ou executar consultas
   Kubernetes durante a gestão do catálogo.
+
+### Fase 8 — Entrada de logs pelo detalhe (v1.6.1)
+- Remover a seleção de pods e o botão de abertura de logs da tabela unificada.
+- Manter a linha do pod como entrada para o painel de detalhes.
+- Usar a aba Logs do detalhe para selecionar fontes e abrir o visualizador agregado.
+- **Entregável:** tabela de pods focada em navegação, com logs acessados pelo detalhe do pod.
 
 ## Margem de melhoria (pós-MVP)
 

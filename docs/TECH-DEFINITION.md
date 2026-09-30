@@ -1,8 +1,8 @@
 # ops-union - Definicao tecnica do Electron
 
 > Documento de referência da arquitetura e do comportamento de comunicação do
-> ops-union. O checkout atual corresponde à release v1.6.0, publicada com a
-> implementação de Workspaces locais.
+> ops-union. O checkout atual corresponde à release v1.6.1, publicada com a
+> implementação de Workspaces locais e entrada de logs pelo detalhe do pod.
 
 ## 1. Objetivo e escopo
 
@@ -643,7 +643,7 @@ capturados continuam sujeitos ao estado parcial ou ao motivo do limite.
 
 Os estados visiveis incluem preparacao, leitura, pronto, parcial, falha, cancelamento e expiracao,
 alem dos estados por fonte `queued`, `reading`, `indexing`, `ready`, `partial`, `failed` e
-`cancelled`. A validacao da versao 1.6.0 registrada inclui 214 testes automatizados, sendo 98 no
+`cancelled`. A validacao da versao 1.6.1 registrada inclui 214 testes automatizados, sendo 98 no
 backend e 116 no frontend. Os typechecks dos tres workspaces, os builds, os diagnosticos e
 `git diff --check` tambem passaram. Os testes incluem Workspaces, migracao da biblioteca legada,
 escopo do catalogo ativo, importacao/exportacao, persistencia e o fechamento do workspace de logs

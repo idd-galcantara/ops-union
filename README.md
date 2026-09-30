@@ -72,33 +72,33 @@ flowchart LR
 
 ## Downloads
 
-A release publicada referenciada por estes links e a **v1.6.0**. Ela inclui a organizacao local de
-presets por Workspaces, persistencia web/desktop, migracao da biblioteca legada e importacao/exportacao
-do Workspace ativo. Os instaladores e pacotes estao disponiveis na pagina de
-[releases do GitHub](https://github.com/idd-galcantara/ops-union/releases/tag/v1.6.0).
+A release publicada referenciada por estes links e a **v1.6.1**. Ela inclui a organizacao local de
+presets por Workspaces, persistencia web/desktop, migracao da biblioteca legada, importacao/exportacao
+do Workspace ativo e o acesso aos logs pelo detalhe do pod. Os instaladores e pacotes estao disponiveis
+na pagina de [releases do GitHub](https://github.com/idd-galcantara/ops-union/releases/tag/v1.6.1).
 
 ### Linux
 
-- [AppImage](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.0/ops-union-1.6.0-linux-x86_64.AppImage)
-- [Pacote Debian](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.0/ops-union-1.6.0-linux-amd64.deb)
+- [AppImage](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.1/ops-union-1.6.1-linux-x86_64.AppImage)
+- [Pacote Debian](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.1/ops-union-1.6.1-linux-amd64.deb)
 
 Instrucoes de instalacao e execucao: [guia de release Linux](docs/README-release-linux.md).
 
 ### Windows
 
-- [Instalador `.exe`](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.0/ops-union-1.6.0-win-x64.exe)
+- [Instalador `.exe`](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.1/ops-union-1.6.1-win-x64.exe)
 
 Instrucoes de instalacao: [guia de release Windows](docs/README-release-windows.md).
 
 ### macOS
 
 O empacotamento macOS gera instaladores `.dmg` e `.zip` para Macs Intel (`x64`) e Apple Silicon
-arm64`). A release `v1.6.0` inclui os quatro artefatos macOS:
+arm64`). A release `v1.6.1` inclui os quatro artefatos macOS:
 
-- [DMG Apple Silicon](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.0/ops-union-1.6.0-mac-arm64.dmg)
-- [DMG Intel](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.0/ops-union-1.6.0-mac-x64.dmg)
-- [ZIP Apple Silicon](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.0/ops-union-1.6.0-mac-arm64.zip)
-- [ZIP Intel](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.0/ops-union-1.6.0-mac-x64.zip)
+- [DMG Apple Silicon](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.1/ops-union-1.6.1-mac-arm64.dmg)
+- [DMG Intel](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.1/ops-union-1.6.1-mac-x64.dmg)
+- [ZIP Apple Silicon](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.1/ops-union-1.6.1-mac-arm64.zip)
+- [ZIP Intel](https://github.com/idd-galcantara/ops-union/releases/download/v1.6.1/ops-union-1.6.1-mac-x64.zip)
 
 Instrucoes de instalacao: [guia de release macOS](docs/README-release-mac.md).
 Instrucoes de empacotamento: [guia de distribuicao](docs/DISTRIBUTION.md).
@@ -621,7 +621,7 @@ npm run typecheck
 npm run build
 ```
 
-A validacao da versao 1.6.0 registrada inclui **214 testes**: 98 no backend e 116 no frontend.
+A validacao da versao 1.6.1 registrada inclui **214 testes**: 98 no backend e 116 no frontend.
 Os typechecks dos tres workspaces, os builds e `git diff --check` tambem passaram. Os
 testes verificam, entre outros pontos:
 
