@@ -183,16 +183,16 @@ button {
 }
 
 .topbar > .workspace-section .workspace-quick-controls {
-  width: min(700px, 100%);
+  width: min(760px, 100%);
   margin: 0 auto;
-  padding: 0;
+  padding: 3px 0;
 }
 
 .workspace-quick-controls {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 0;
 }
 
 .workspace-quick-trigger {
@@ -218,7 +218,10 @@ button {
 
 .workspace-workspace-quick-trigger {
   flex: 1 1 auto;
-  padding: 5px 4px;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 5px;
+  transition: background-color 140ms ease, color 140ms ease;
 }
 
 .workspace-preset-control {
@@ -226,18 +229,23 @@ button {
   min-width: 0;
   flex: 0 1 30ch;
   min-width: 30ch;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
 }
 
 .workspace-preset-quick-trigger {
   width: 100%;
   flex: 1;
-  padding: 5px 2px;
-  border-bottom: 1px solid var(--line);
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  transition: background-color 140ms ease, color 140ms ease;
 }
 
 .workspace-quick-trigger:hover,
 .workspace-quick-trigger:focus-visible {
   color: var(--accent);
+  background: var(--surface-subtle);
   outline: none;
 }
 
@@ -261,7 +269,7 @@ button {
 
 .workspace-workspace-quick-trigger > strong {
   flex: 0 1 auto;
-  max-width: min(100ch, calc(100% - 100px));
+  max-width: min(30ch, calc(100% - 100px));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -5021,6 +5029,12 @@ button {
 
   .workspace-preset-quick-trigger {
     flex: 1 1 auto;
+  }
+
+  .workspace-preset-control {
+    min-width: 0;
+    padding-left: 0;
+    border-left: 0;
   }
 
   .workspace-quick-trigger {
