@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Bookmark,
   Check,
+  ChevronDown,
   Download,
   FileUp,
   Layers,
@@ -20,13 +21,11 @@ import { applyPresetAndLoad } from '../presetFlow';
 import {
   describePreset,
   orderPresetsByRecentUse,
-  parsePresetImport,
-  serializePresets,
   type Preset,
-  type PresetImportResult,
 } from '../presets';
 import { useOpsFlowStore } from '../store';
 import { targetKey, type NamespaceInfo } from '../types';
+import { parseWorkspaceImport, type Workspace, type WorkspaceImportResult } from '../workspaces';
 import { ErrorState, LoadingState } from './Feedback';
 import { NamespaceInput } from './NamespaceInput';
 import { KubeconfigSetup } from './KubeconfigSetup';
@@ -43,14 +42,6 @@ interface TargetSelectorProps {
 }
 
 const KEYBOARD_STEP = 24;
-const FILE_OPERATION_MIN_MS = 400;
-
-function waitForFileOperationMinimum(startedAt: number): Promise<void> {
-  const remaining = FILE_OPERATION_MIN_MS - (Date.now() - startedAt);
-  if (remaining <= 0) return Promise.resolve();
-  return new Promise((resolve) => window.setTimeout(resolve, remaining));
-}
-
 /**
  * Builds the list of (cluster, namespace) targets to query.
  *
@@ -414,13 +405,6 @@ function PresetSection({ openRequest, resetRequest }: { openRequest: number; res
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [applyingPresetId, setApplyingPresetId] = useState<string | null>(null);
   const contextNames = useMemo(() => contexts.map((context) => context.name), [contexts]);
-  const activePreset = presets.find((preset) => preset.id === activePresetId);
-  const canUpdateActivePreset = Boolean(activePreset && activePresetDirty && targets.length > 0);
-
-  const updateActivePreset = () => {
-    if (!activePreset || !canUpdateActivePreset) return;
-    updatePreset(activePreset.id, activePreset.name, activePreset.description ?? '', targets);
-  };
 
   const openLibrary = (saveCurrent = false) => {
     setStartNaming(saveCurrent);
@@ -456,27 +440,6 @@ function PresetSection({ openRequest, resetRequest }: { openRequest: number; res
             </button>
           )}
         </div>
-        {activePreset && (
-          <div className={`preset-active ${activePresetDirty ? 'is-dirty' : ''}`} aria-live="polite">
-            <span className="preset-active-name">
-              Active: <strong>{activePreset.name}</strong>
-            </span>
-            {activePresetDirty && (
-              <>
-                <em>edited</em>
-                <button
-                  type="button"
-                  className="preset-update-button"
-                  onClick={updateActivePreset}
-                  disabled={!canUpdateActivePreset}
-                  title={`Update preset ${activePreset.name} with the current targets`}
-                >
-                  <Save size={11} /> Update
-                </button>
-              </>
-            )}
-          </div>
-        )}
       </section>
 
       {libraryOpen && (
@@ -528,6 +491,349 @@ function PresetSection({ openRequest, resetRequest }: { openRequest: number; res
   );
 }
 
+export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: () => void }) {
+  const workspaces = useOpsFlowStore((state) => state.workspaces);
+  const activeWorkspaceId = useOpsFlowStore((state) => state.activeWorkspaceId);
+  const presets = useOpsFlowStore((state) => state.presets);
+  const activePresetId = useOpsFlowStore((state) => state.activePresetId);
+  const activePresetDirty = useOpsFlowStore((state) => state.activePresetDirty);
+  const targets = useOpsFlowStore((state) => state.targets);
+  const switchWorkspace = useOpsFlowStore((state) => state.switchWorkspace);
+  const createWorkspace = useOpsFlowStore((state) => state.createWorkspace);
+  const renameWorkspace = useOpsFlowStore((state) => state.renameWorkspace);
+  const deleteWorkspace = useOpsFlowStore((state) => state.deleteWorkspace);
+  const importWorkspace = useOpsFlowStore((state) => state.importWorkspace);
+  const exportActiveWorkspace = useOpsFlowStore((state) => state.exportActiveWorkspace);
+  const updatePreset = useOpsFlowStore((state) => state.updatePreset);
+  const active = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0];
+  const [open, setOpen] = useState(false);
+  const [workspaceEditor, setWorkspaceEditor] = useState<{ mode: 'create' } | { mode: 'rename'; workspaceId: string } | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [importPreview, setImportPreview] = useState<WorkspaceImportResult | null>(null);
+  const [importName, setImportName] = useState('');
+  const [activateImport, setActivateImport] = useState(false);
+  const [fileOperation, setFileOperation] = useState<'importing' | 'exporting' | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const activePreset = presets.find((preset) => preset.id === activePresetId);
+  const canUpdateActivePreset = Boolean(activePreset && activePresetDirty && targets.length > 0);
+
+  const updateActivePreset = () => {
+    if (!activePreset || !canUpdateActivePreset) return;
+    updatePreset(activePreset.id, activePreset.name, activePreset.description ?? '', targets);
+  };
+
+  const closeManager = () => {
+    setOpen(false);
+    setWorkspaceEditor(null);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    dialogRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (importPreview) {
+        setImportPreview(null);
+        return;
+      }
+      if (workspaceEditor) return;
+      closeManager();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [importPreview, open, workspaceEditor]);
+
+  const beginCreate = () => {
+    setWorkspaceEditor({ mode: 'create' });
+    setStatus(null);
+  };
+
+  const beginRename = (workspace = active) => {
+    setWorkspaceEditor({ mode: 'rename', workspaceId: workspace.id });
+    setStatus(null);
+  };
+
+  const saveWorkspace = (mode: 'create' | 'rename', workspaceId: string | undefined, name: string, description: string) => {
+    const error = mode === 'create'
+      ? createWorkspace(name, description)
+      : workspaceId ? renameWorkspace(workspaceId, name, description) : 'Workspace not found.';
+    if (!error) {
+      setStatus(mode === 'create' ? 'Workspace created and selected.' : 'Workspace renamed.');
+    }
+    return error;
+  };
+
+  const exportWorkspace = () => {
+    if (fileOperation) return;
+    setFileOperation('exporting');
+    try {
+      const blob = new Blob([exportActiveWorkspace()], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${active.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'workspace'}.json`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setStatus('Workspace export started.');
+    } catch {
+      setStatus('The Workspace could not be exported.');
+    } finally {
+      setFileOperation(null);
+    }
+  };
+
+  const readImport = (file: File) => {
+    setFileOperation('importing');
+    void file.text().then((raw) => {
+      const preview = parseWorkspaceImport(raw, workspaces);
+      setImportPreview(preview);
+      setImportName(preview.suggestedName ?? preview.workspaceName ?? '');
+      setActivateImport(false);
+    }).catch(() => {
+      setStatus('The selected Workspace could not be read.');
+    }).finally(() => setFileOperation(null));
+  };
+
+  const confirmDelete = (workspaceId: string) => {
+    const target = workspaces.find((workspace) => workspace.id === workspaceId);
+    if (!target) return;
+    if (workspaces.length <= 1) {
+      setStatus('At least one Workspace must remain.');
+      return;
+    }
+    if (!window.confirm(`Delete Workspace "${target.name}" and its ${target.presets.length} preset(s)?`)) return;
+    const error = deleteWorkspace(workspaceId);
+    setStatus(error ?? 'Workspace deleted.');
+  };
+
+  const submitImport = () => {
+    if (!importPreview) return;
+    const error = importWorkspace(importPreview, importName, activateImport);
+    if (error) {
+      setStatus(error);
+      return;
+    }
+    setImportPreview(null);
+    setStatus(activateImport ? 'Workspace imported and selected.' : 'Workspace imported.');
+  };
+
+  if (!active) return null;
+  const editorWorkspace = workspaceEditor?.mode === 'rename'
+    ? workspaces.find((workspace) => workspace.id === workspaceEditor.workspaceId) ?? null
+    : null;
+
+  return (
+    <section className="workspace-section" aria-label="Active workspace and preset">
+      <div className="workspace-context">
+        <button
+          type="button"
+          className="workspace-context-trigger"
+          onClick={() => setOpen(true)}
+          aria-expanded={open}
+          aria-controls="workspace-manager"
+          aria-label={`Workspace ${active.name}; ${activePreset?.name ?? 'Live search'}`}
+        >
+          <span className="workspace-context-label">Workspace</span>
+          <strong title={active.name}>{active.name}</strong>
+          <span className="workspace-context-preset" aria-live="polite">
+            <Bookmark size={12} />
+            <b title={activePreset?.name}>{activePreset?.name ?? 'Live search'}</b>
+          </span>
+          <ChevronDown size={13} aria-hidden="true" />
+        </button>
+        {activePresetDirty && (
+          <button
+            type="button"
+            className="preset-update-button workspace-update-button"
+            onClick={updateActivePreset}
+            disabled={!canUpdateActivePreset}
+            aria-label={`Update preset ${activePreset?.name ?? 'active preset'}`}
+            title={`Update preset ${activePreset?.name ?? 'active preset'} with the current targets`}
+          >
+            <Save size={11} />
+          </button>
+        )}
+      </div>
+      {status && <p className="workspace-status" role="status" aria-live="polite">{status}</p>}
+      {open && (
+        <div className="workspace-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && closeManager()}>
+          <section className="workspace-modal" ref={dialogRef} id="workspace-manager" role="dialog" aria-modal="true" aria-labelledby="workspace-manager-title" tabIndex={-1}>
+          <div className="workspace-manager-header">
+            <div>
+              <span className="eyebrow">Preset collection</span>
+              <h2 id="workspace-manager-title">Workspaces</h2>
+            </div>
+            <button type="button" className="icon-button subtle" onClick={closeManager} aria-label="Close Workspace manager">
+              <X size={15} />
+            </button>
+          </div>
+          <div className="workspace-list">
+            {workspaces.map((workspace) => (
+              <div className={`workspace-list-item ${workspace.id === activeWorkspaceId ? 'is-active' : ''}`} key={workspace.id}>
+                <button
+                  type="button"
+                  className="workspace-list-select"
+                  onClick={() => {
+                    const error = switchWorkspace(workspace.id);
+                    if (error) {
+                      setStatus(error);
+                      return;
+                    }
+                    setStatus(null);
+                    if (workspace.id !== activeWorkspaceId) onWorkspaceChange();
+                    setOpen(false);
+                  }}
+                  aria-pressed={workspace.id === activeWorkspaceId}
+                >
+                  <strong title={workspace.name}>{workspace.name}</strong>
+                  <small>{workspace.presets.length} preset{workspace.presets.length === 1 ? '' : 's'}{workspace.description ? ` · ${workspace.description}` : ''}</small>
+                </button>
+                {workspace.id === activeWorkspaceId && <span className="workspace-active-label">Active</span>}
+                <button type="button" className="icon-button subtle" onClick={() => beginRename(workspace)} aria-label={`Rename Workspace ${workspace.name}`} title="Rename Workspace">
+                  <Pencil size={13} />
+                </button>
+                <button type="button" className="icon-button subtle danger" onClick={() => confirmDelete(workspace.id)} aria-label={`Delete Workspace ${workspace.name}`} title="Delete Workspace" disabled={workspaces.length <= 1}>
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="workspace-manager-actions">
+            <button type="button" className="secondary-button" onClick={beginCreate} disabled={Boolean(fileOperation)}><Plus size={13} /> Create</button>
+            <button type="button" className="secondary-button" onClick={exportWorkspace} disabled={Boolean(fileOperation)}><Download size={13} /> Export</button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                if (fileOperation) return;
+                setFileOperation('importing');
+                window.setTimeout(() => fileInputRef.current?.click(), 0);
+              }}
+              disabled={Boolean(fileOperation)}
+            ><FileUp size={13} /> Import</button>
+            <input
+              ref={fileInputRef}
+              className="visually-hidden"
+              type="file"
+              accept=".json,application/json"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (file) readImport(file);
+                else setFileOperation(null);
+              }}
+              aria-label="Choose Workspace JSON file"
+            />
+          </div>
+          {fileOperation && <p className="workspace-status" role="status" aria-live="polite">{fileOperation === 'importing' ? 'Reading Workspace...' : 'Preparing Workspace download...'}</p>}
+          </section>
+        </div>
+      )}
+      {workspaceEditor && (
+        <WorkspaceEditor
+          mode={workspaceEditor.mode}
+          workspace={editorWorkspace}
+          onClose={() => setWorkspaceEditor(null)}
+          onSave={(name, description) => {
+            const error = saveWorkspace(workspaceEditor.mode, workspaceEditor.mode === 'rename' ? workspaceEditor.workspaceId : undefined, name, description);
+            if (!error) setWorkspaceEditor(null);
+            return error;
+          }}
+        />
+      )}
+      {importPreview && (
+        <div className="preset-dialog-layer" onMouseDown={(event) => event.target === event.currentTarget && setImportPreview(null)}>
+          <section className="preset-secondary-dialog" role="dialog" aria-modal="true" aria-labelledby="workspace-import-title">
+            <div className="preset-secondary-dialog-header">
+              <div><span className="eyebrow">Review file</span><h3 id="workspace-import-title">Import Workspace</h3></div>
+              <button type="button" className="icon-button subtle" onClick={() => setImportPreview(null)} aria-label="Close Workspace import preview"><X size={15} /></button>
+            </div>
+            {importPreview.error ? <div className="preset-library-feedback is-error" role="alert">{importPreview.error}</div> : (
+              <>
+                <p className="preset-dialog-summary">{importPreview.accepted.length} preset(s) ready, {importPreview.invalid.length} invalid. A new Workspace will be created.</p>
+                <label className="workspace-form"><span>Resulting Workspace name</span><input value={importName} onChange={(event) => setImportName(event.target.value)} /></label>
+                <label className="workspace-import-activate"><input type="checkbox" checked={activateImport} onChange={(event) => setActivateImport(event.target.checked)} /> Select imported Workspace after confirmation</label>
+                {importPreview.invalid.map((entry) => <p className="workspace-import-error" key={entry.index}>Entry {entry.index + 1}: {entry.reason}</p>)}
+              </>
+            )}
+            <div className="preset-secondary-dialog-actions">
+              <button type="button" className="secondary-button" onClick={() => setImportPreview(null)}>Cancel</button>
+              <button type="button" className="primary-button" onClick={submitImport} disabled={Boolean(importPreview.error) || importPreview.accepted.length === 0 || !importName.trim()}>Create Workspace</button>
+            </div>
+          </section>
+        </div>
+      )}
+    </section>
+  );
+}
+
+interface WorkspaceEditorProps {
+  mode: 'create' | 'rename';
+  workspace: Workspace | null;
+  onClose: () => void;
+  onSave: (name: string, description: string) => string | undefined;
+}
+
+function WorkspaceEditor({ mode, workspace, onClose, onSave }: WorkspaceEditorProps) {
+  const [name, setName] = useState(workspace?.name ?? '');
+  const [description, setDescription] = useState(workspace?.description ?? '');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  if (mode === 'rename' && !workspace) return null;
+
+  const submit = () => {
+    const saveError = onSave(name, description);
+    if (saveError) setError(saveError);
+  };
+
+  return (
+    <div className="preset-editor-backdrop" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section className="preset-editor" role="dialog" aria-modal="true" aria-labelledby="workspace-editor-title">
+        <div className="preset-editor-header">
+          <div>
+            <span className="eyebrow">Workspace details</span>
+            <h2 id="workspace-editor-title">{mode === 'create' ? 'Create workspace' : 'Edit workspace'}</h2>
+          </div>
+          <button type="button" className="icon-button subtle" onClick={onClose} aria-label="Close workspace editor">
+            <X size={15} />
+          </button>
+        </div>
+
+        {error && <div className="preset-library-feedback is-error" role="alert">{error}</div>}
+
+        <div className="preset-editor-fields">
+          <label>
+            <span>Name</span>
+            <input value={name} onChange={(event) => { setName(event.target.value); setError(null); }} autoFocus onKeyDown={(event) => event.key === 'Enter' && submit()} />
+          </label>
+          <label>
+            <span>Description <em>optional</em></span>
+            <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="What is this workspace used for?" rows={2} />
+          </label>
+        </div>
+
+        <div className="preset-editor-actions">
+          <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
+          <button type="button" className="primary-button" onClick={submit} disabled={!name.trim()}>
+            <Save size={13} /> {mode === 'create' ? 'Create workspace' : 'Save changes'}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 interface PresetLibraryProps {
   presets: Preset[];
   targets: { cluster: string; namespace: string }[];
@@ -554,18 +860,12 @@ function PresetLibrary({
   onDelete,
 }: PresetLibraryProps) {
   const savePreset = useOpsFlowStore((s) => s.savePreset);
-  const appendImportedPresets = useOpsFlowStore((s) => s.appendImportedPresets);
   const clearPresets = useOpsFlowStore((s) => s.clearPresets);
   const [query, setQuery] = useState('');
   const [naming, setNaming] = useState(startNaming);
   const [name, setName] = useState('');
-  const [importPreview, setImportPreview] = useState<PresetImportResult | null>(null);
-  const [importError, setImportError] = useState<string | null>(null);
-  const [fileOperation, setFileOperation] = useState<'importing' | 'exporting' | null>(null);
   const [deleteAllOpen, setDeleteAllOpen] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const fileOperationStartedAtRef = useRef<number | null>(null);
-  const libraryBusy = Boolean(applyingPresetId || fileOperation);
+  const libraryBusy = Boolean(applyingPresetId);
 
   const visiblePresets = useMemo(() => {
     const orderedPresets = orderPresetsByRecentUse(presets);
@@ -591,63 +891,10 @@ function PresetLibrary({
     setNaming(false);
   };
 
-  const exportLibrary = () => {
-    if (libraryBusy) return;
-    const startedAt = Date.now();
-    setFileOperation('exporting');
-    setImportError(null);
-    void (async () => {
-      try {
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-        const blob = new Blob([serializePresets(presets)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'ops-union-presets.json';
-        link.click();
-        window.setTimeout(() => URL.revokeObjectURL(url), 0);
-      } catch {
-        setImportError('The preset library could not be exported.');
-      } finally {
-        await waitForFileOperationMinimum(startedAt);
-        setFileOperation(null);
-      }
-    })();
-  };
-
-  const importFile = (file: File, startedAt: number) => {
-    if (applyingPresetId) return;
-    setImportError(null);
-    setFileOperation('importing');
-    void (async () => {
-      try {
-        const raw = await file.text();
-        const preview = parsePresetImport(raw, presets);
-        await waitForFileOperationMinimum(startedAt);
-        setImportPreview(preview);
-      } catch {
-        await waitForFileOperationMinimum(startedAt);
-        setImportError('The selected file could not be read.');
-      } finally {
-        setFileOperation(null);
-      }
-    })();
-  };
-
-  const confirmImport = () => {
-    if (libraryBusy || !importPreview || importPreview.accepted.length === 0) return;
-    appendImportedPresets(importPreview.accepted);
-    setImportPreview(null);
-  };
-
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       if (libraryBusy) return;
-      if (importPreview) {
-        setImportPreview(null);
-        return;
-      }
       if (deleteAllOpen) {
         setDeleteAllOpen(false);
         return;
@@ -656,18 +903,7 @@ function PresetLibrary({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [deleteAllOpen, importPreview, libraryBusy, onClose]);
-
-  useEffect(() => {
-    const input = fileInputRef.current;
-    if (!input) return;
-    const handleCancel = () => {
-      fileOperationStartedAtRef.current = null;
-      setFileOperation(null);
-    };
-    input.addEventListener('cancel', handleCancel);
-    return () => input.removeEventListener('cancel', handleCancel);
-  }, []);
+  }, [deleteAllOpen, libraryBusy, onClose]);
 
   const closeLibrary = () => {
     if (libraryBusy) return;
@@ -709,13 +945,6 @@ function PresetLibrary({
           </div>
         )}
 
-        {fileOperation && (
-          <div className="preset-library-status is-pending" role="status" aria-live="polite" aria-atomic="true">
-            <RefreshCw size={13} className="spinning" />
-            <span>{fileOperation === 'importing' ? 'Reading preset library...' : 'Preparing preset library download...'}</span>
-          </div>
-        )}
-
         <div className="preset-library-toolbar">
           {presets.length > 0 ? (
             <label className="preset-search preset-library-search">
@@ -740,50 +969,6 @@ function PresetLibrary({
               <Save size={13} /> Save as new
             </button>
           )}
-          <div className="preset-library-file-actions">
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={exportLibrary}
-              disabled={presets.length === 0 || libraryBusy}
-              title="Download the saved preset library as JSON"
-            >
-              <Download size={13} /> Export JSON
-            </button>
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => {
-                if (libraryBusy) return;
-                fileOperationStartedAtRef.current = Date.now();
-                setImportError(null);
-                setFileOperation('importing');
-                window.setTimeout(() => fileInputRef.current?.click(), 0);
-              }}
-              disabled={libraryBusy}
-              title="Choose a preset library JSON file"
-            >
-              <FileUp size={13} /> Import JSON
-            </button>
-            <input
-              ref={fileInputRef}
-              className="visually-hidden"
-              type="file"
-              accept=".json,application/json"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = '';
-                const startedAt = fileOperationStartedAtRef.current;
-                fileOperationStartedAtRef.current = null;
-                if (file) {
-                  importFile(file, startedAt ?? Date.now());
-                } else {
-                  setFileOperation(null);
-                }
-              }}
-              aria-label="Choose preset JSON file"
-            />
-          </div>
           {presets.length > 0 && (
             <button
               type="button"
@@ -795,8 +980,6 @@ function PresetLibrary({
             </button>
           )}
         </div>
-
-        {importError && <div className="preset-library-feedback is-error" role="alert">{importError}</div>}
 
         {naming && (
           <div className="preset-library-save-form">
@@ -858,13 +1041,6 @@ function PresetLibrary({
           {presets.length > 0 && visiblePresets.length === 0 && <p className="sidebar-hint">No preset matches the search.</p>}
         </div>
 
-        {importPreview && (
-          <PresetImportPreview
-            result={importPreview}
-            onCancel={() => setImportPreview(null)}
-            onConfirm={confirmImport}
-          />
-        )}
         {deleteAllOpen && (
           <PresetDeleteAllDialog
             count={presets.length}
@@ -875,72 +1051,6 @@ function PresetLibrary({
             }}
           />
         )}
-      </section>
-    </div>
-  );
-}
-
-function PresetImportPreview({
-  result,
-  onCancel,
-  onConfirm,
-}: {
-  result: PresetImportResult;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div className="preset-dialog-layer" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onCancel();
-    }}>
-      <section className="preset-secondary-dialog" role="dialog" aria-modal="true" aria-labelledby="preset-import-title">
-        <div className="preset-secondary-dialog-header">
-          <div>
-            <span className="eyebrow">Review file</span>
-            <h3 id="preset-import-title">Import preview</h3>
-          </div>
-          <button type="button" className="icon-button subtle" onClick={onCancel} aria-label="Close import preview">
-            <X size={15} />
-          </button>
-        </div>
-        {result.error ? (
-          <div className="preset-library-feedback is-error" role="alert">{result.error}</div>
-        ) : (
-          <>
-            <p className="preset-dialog-summary">
-              {result.accepted.length} preset(s) ready to add, {result.duplicates.length} duplicate(s) skipped, {result.invalid.length} invalid entr{result.invalid.length === 1 ? 'y' : 'ies'}.
-            </p>
-            <div className="preset-import-results">
-              {result.accepted.map((preset) => (
-                <div className="preset-import-result is-valid" key={`accepted-${preset.name}-${preset.targets.map((target) => `${target.cluster}/${target.namespace}`).join('|')}`}>
-                  <Check size={13} />
-                  <span><strong>{preset.name}</strong><small>{preset.targets.length} target(s) ready to add</small></span>
-                </div>
-              ))}
-              {result.duplicates.map((duplicate) => (
-                <div className="preset-import-result is-duplicate" key={`duplicate-${duplicate.index}`}>
-                  <AlertTriangle size={13} />
-                  <span><strong>{duplicate.name}</strong><small>Skipped: {duplicate.reason}</small></span>
-                </div>
-              ))}
-              {result.invalid.map((invalid) => (
-                <div className="preset-import-result is-invalid" key={`invalid-${invalid.index}`}>
-                  <AlertTriangle size={13} />
-                  <span><strong>{invalid.name ?? `Entry ${invalid.index + 1}`}</strong><small>{invalid.reason}</small></span>
-                </div>
-              ))}
-              {result.accepted.length === 0 && result.duplicates.length === 0 && result.invalid.length === 0 && (
-                <p className="sidebar-hint">The file contains no preset entries.</p>
-              )}
-            </div>
-          </>
-        )}
-        <div className="preset-secondary-dialog-actions">
-          <button type="button" className="secondary-button" onClick={onCancel}>Cancel</button>
-          <button type="button" className="primary-button" onClick={onConfirm} disabled={Boolean(result.error) || result.accepted.length === 0}>
-            <FileUp size={13} /> Add ready presets
-          </button>
-        </div>
       </section>
     </div>
   );

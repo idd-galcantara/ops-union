@@ -2,6 +2,7 @@
 
 import type { KubeConfigStatus } from './types';
 import type { Preset } from './presets';
+import type { WorkspaceCatalog } from './workspaces';
 
 interface DesktopSelectionResult {
 	cancelled: boolean;
@@ -23,8 +24,8 @@ declare global {
 			resetKubeconfig: () => Promise<DesktopResetResult>;
 			loadTheme: () => Promise<'light' | 'dark' | null>;
 			saveTheme: (theme: 'light' | 'dark') => Promise<void>;
-			loadPresets: () => Promise<Preset[]>;
-			savePresets: (presets: Preset[]) => Promise<void>;
+			loadPresets: () => Promise<Preset[] | WorkspaceCatalog | unknown>;
+			savePresets: (presets: Preset[] | WorkspaceCatalog | unknown) => Promise<void>;
 		};
 	}
 }

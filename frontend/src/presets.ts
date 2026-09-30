@@ -230,7 +230,9 @@ export async function loadPersistentPresets(): Promise<Preset[]> {
   if (typeof window !== 'undefined' && window.opsFlowDesktop) {
     try {
       const presets = await window.opsFlowDesktop.loadPresets();
-      return presets.map(normalizePreset).filter((preset): preset is Preset => preset !== null);
+      return Array.isArray(presets)
+        ? presets.map(normalizePreset).filter((preset): preset is Preset => preset !== null)
+        : [];
     } catch {
       // A missing or unreadable desktop store should not break the UI.
     }

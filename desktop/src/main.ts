@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { randomBytes } from 'node:crypto';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, rename, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import path from 'node:path';
 import { startBackend, stopBackend, waitForBackend } from './backendProcess';
@@ -25,8 +25,24 @@ interface ResetResult {
 interface StoredPreset {
   id: string;
   name: string;
+  description?: string;
   targets: Array<{ cluster: string; namespace: string }>;
   lastUsedAt?: number;
+}
+
+interface StoredWorkspace {
+  id: string;
+  name: string;
+  description?: string;
+  presets: StoredPreset[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface StoredWorkspaceCatalog {
+  version: 1;
+  workspaces: StoredWorkspace[];
+  activeWorkspaceId: string;
 }
 
 type Theme = 'light' | 'dark';
@@ -55,11 +71,13 @@ function isStoredPreset(value: unknown): value is StoredPreset {
   const candidate = value as {
     id?: unknown;
     name?: unknown;
+    description?: unknown;
     targets?: unknown;
     lastUsedAt?: unknown;
   };
   return typeof candidate.id === 'string' &&
     typeof candidate.name === 'string' &&
+    (candidate.description === undefined || typeof candidate.description === 'string') &&
     (candidate.lastUsedAt === undefined ||
       (typeof candidate.lastUsedAt === 'number' &&
         Number.isFinite(candidate.lastUsedAt) &&
@@ -72,10 +90,32 @@ function isStoredPreset(value: unknown): value is StoredPreset {
     });
 }
 
-async function readPresets(): Promise<StoredPreset[]> {
+function isStoredWorkspace(value: unknown): value is StoredWorkspace {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { id?: unknown; name?: unknown; description?: unknown; presets?: unknown; createdAt?: unknown; updatedAt?: unknown };
+  return typeof candidate.id === 'string' &&
+    typeof candidate.name === 'string' &&
+    (candidate.description === undefined || typeof candidate.description === 'string') &&
+    (candidate.createdAt === undefined || typeof candidate.createdAt === 'string') &&
+    (candidate.updatedAt === undefined || typeof candidate.updatedAt === 'string') &&
+    Array.isArray(candidate.presets) && candidate.presets.every(isStoredPreset);
+}
+
+function isStoredWorkspaceCatalog(value: unknown): value is StoredWorkspaceCatalog {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { version?: unknown; workspaces?: unknown; activeWorkspaceId?: unknown };
+  return candidate.version === 1 &&
+    typeof candidate.activeWorkspaceId === 'string' &&
+    Array.isArray(candidate.workspaces) &&
+    candidate.workspaces.length > 0 &&
+    candidate.workspaces.every(isStoredWorkspace);
+}
+
+async function readPresets(): Promise<unknown> {
   try {
     const contents = await readFile(presetsFile(), 'utf8');
     const parsed: unknown = JSON.parse(contents);
+    if (isStoredWorkspaceCatalog(parsed)) return parsed;
     return Array.isArray(parsed) ? parsed.filter(isStoredPreset) : [];
   } catch {
     return [];
@@ -83,10 +123,13 @@ async function readPresets(): Promise<StoredPreset[]> {
 }
 
 async function savePresets(value: unknown): Promise<void> {
-  if (!Array.isArray(value) || !value.every(isStoredPreset)) {
+  if ((!Array.isArray(value) || !value.every(isStoredPreset)) && !isStoredWorkspaceCatalog(value)) {
     throw new Error('Invalid presets.');
   }
-  await writeFile(presetsFile(), `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  const file = presetsFile();
+  const temporaryFile = `${file}.tmp`;
+  await writeFile(temporaryFile, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+  await rename(temporaryFile, file);
 }
 
 async function readPreferences(): Promise<StoredPreferences> {

@@ -6,7 +6,7 @@ import { LogViewer } from './components/LogViewer';
 import { PodDetailsPanel } from './components/PodDetailsPanel';
 import { PodTable, podRowKey } from './components/PodTable';
 import { TargetErrorBanner } from './components/TargetErrorBanner';
-import { TargetSelector } from './components/TargetSelector';
+import { TargetSelector, WorkspaceControls } from './components/TargetSelector';
 import { ViewToolbar } from './components/ViewToolbar';
 import { getQuickPresets } from './launchpad';
 import { matchesFilter } from './podPresentation';
@@ -317,6 +317,7 @@ export default function App() {
             <span>Kubernetes unified view</span>
           </div>
         </button>
+        <WorkspaceControls onWorkspaceChange={resetView} />
         <div className="topbar-actions">
           <button
             type="button"

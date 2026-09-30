@@ -2,14 +2,24 @@ import { create } from 'zustand';
 import { fetchContexts, fetchKubeConfigStatus, fetchNamespaces, fetchPods } from './api';
 import {
   createPreset,
-  loadPersistentPresets,
-  loadPresets,
   markPresetUsed,
   presetSemanticKey,
-  savePresets,
   type Preset,
   type PortablePreset,
 } from './presets';
+import {
+  activeWorkspace,
+  createDefaultWorkspace,
+  createWorkspace,
+  getInitialWorkspaceCatalog,
+  loadWorkspaceCatalog,
+  persistWorkspaceCatalog,
+  serializeWorkspace,
+  validateWorkspaceName,
+  type Workspace,
+  type WorkspaceCatalog,
+  type WorkspaceImportResult,
+} from './workspaces';
 import {
   targetKey,
   type ContextInfo,
@@ -68,6 +78,9 @@ interface OpsFlowState {
 
   /** Saved target combinations. */
   presets: Preset[];
+  /** Local preset Workspaces; operational state is intentionally separate. */
+  workspaces: Workspace[];
+  activeWorkspaceId: string;
   /** Preset applied to the current target selection, if any. */
   activePresetId: string | null;
   /** True when current targets differ from the active preset. */
@@ -86,6 +99,12 @@ interface OpsFlowState {
   setFilter: (filter: string) => void;
   setRefreshSeconds: (seconds: number) => void;
   hydratePresets: () => Promise<void>;
+  createWorkspace: (name: string, description?: string) => string | undefined;
+  renameWorkspace: (id: string, name: string, description?: string) => string | undefined;
+  switchWorkspace: (id: string) => string | undefined;
+  deleteWorkspace: (id: string) => string | undefined;
+  importWorkspace: (result: WorkspaceImportResult, name: string, activate: boolean) => string | undefined;
+  exportActiveWorkspace: (exportedAt?: string) => string;
   savePreset: (name: string, description?: string) => void;
   updatePreset: (id: string, name: string, description: string, targets: Target[]) => void;
   applyPreset: (id: string) => void;
@@ -95,6 +114,22 @@ interface OpsFlowState {
 }
 
 export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
+  const initialCatalog = getInitialWorkspaceCatalog();
+
+  const catalogWithPresets = (state: OpsFlowState, presets: Preset[], activeWorkspaceId = state.activeWorkspaceId): WorkspaceCatalog => ({
+    version: 1,
+    activeWorkspaceId,
+    workspaces: state.workspaces.map((workspace) =>
+      workspace.id === state.activeWorkspaceId
+        ? { ...workspace, presets, updatedAt: new Date().toISOString() }
+        : workspace,
+    ),
+  });
+
+  const persistState = (state: OpsFlowState, presets: Preset[], activeWorkspaceId = state.activeWorkspaceId) => {
+    persistWorkspaceCatalog(catalogWithPresets(state, presets, activeWorkspaceId));
+  };
+
   const applyKubeconfigChange = (kubeconfigStatus?: KubeConfigStatus) => {
     namespacesRequestId += 1;
     podsRequestId += 1;
@@ -140,7 +175,9 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
   namespaces: [],
   namespacesLoading: false,
   namespacesFor: [],
-  presets: loadPresets(),
+  workspaces: initialCatalog.workspaces,
+  activeWorkspaceId: initialCatalog.activeWorkspaceId,
+  presets: activeWorkspace(initialCatalog).presets,
   activePresetId: null,
   activePresetDirty: false,
 
@@ -374,8 +411,107 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
   setRefreshSeconds: (refreshSeconds) => set({ refreshSeconds }),
 
   hydratePresets: async () => {
-    const presets = await loadPersistentPresets();
-    set({ presets });
+    const catalog = await loadWorkspaceCatalog();
+    const current = activeWorkspace(catalog);
+    set({
+      workspaces: catalog.workspaces,
+      activeWorkspaceId: current.id,
+      presets: current.presets,
+      activePresetId: null,
+      activePresetDirty: false,
+    });
+  },
+
+  createWorkspace: (name, description = '') => {
+    const state = get();
+    const error = validateWorkspaceName(name, state.workspaces);
+    if (error) return error;
+    const workspace = createWorkspace(name, description);
+    const workspaces = [...state.workspaces, workspace];
+    persistWorkspaceCatalog({ version: 1, workspaces, activeWorkspaceId: workspace.id });
+    set({
+      workspaces,
+      activeWorkspaceId: workspace.id,
+      presets: [],
+      activePresetId: null,
+      activePresetDirty: false,
+    });
+    return undefined;
+  },
+
+  renameWorkspace: (id, name, description = '') => {
+    const state = get();
+    const current = state.workspaces.find((workspace) => workspace.id === id);
+    if (!current) return 'Workspace no longer exists.';
+    const error = validateWorkspaceName(name, state.workspaces, id);
+    if (error) return error;
+    const workspaces = state.workspaces.map((workspace) => workspace.id === id
+      ? { ...workspace, name: name.trim(), ...(description.trim() ? { description: description.trim() } : { description: undefined }), updatedAt: new Date().toISOString() }
+      : workspace);
+    persistWorkspaceCatalog({ version: 1, workspaces, activeWorkspaceId: state.activeWorkspaceId });
+    set({ workspaces });
+    return undefined;
+  },
+
+  switchWorkspace: (id) => {
+    const state = get();
+    const workspace = state.workspaces.find((item) => item.id === id);
+    if (!workspace) return 'Workspace no longer exists.';
+    if (id === state.activeWorkspaceId) return undefined;
+    persistState(state, state.presets, id);
+    set({
+      activeWorkspaceId: id,
+      presets: workspace.presets,
+      activePresetId: workspace.presets.some((preset) => preset.id === state.activePresetId) ? state.activePresetId : null,
+      activePresetDirty: false,
+    });
+    return undefined;
+  },
+
+  deleteWorkspace: (id) => {
+    const state = get();
+    if (state.workspaces.length <= 1) return 'At least one Workspace must remain.';
+    if (!state.workspaces.some((workspace) => workspace.id === id)) return 'Workspace no longer exists.';
+    const index = state.workspaces.findIndex((workspace) => workspace.id === id);
+    const workspaces = state.workspaces.filter((workspace) => workspace.id !== id);
+    const nextActiveId = id === state.activeWorkspaceId
+      ? (workspaces[Math.min(index, workspaces.length - 1)]?.id ?? workspaces[0].id)
+      : state.activeWorkspaceId;
+    const nextActive = workspaces.find((workspace) => workspace.id === nextActiveId) ?? workspaces[0];
+    persistWorkspaceCatalog({ version: 1, workspaces, activeWorkspaceId: nextActive.id });
+    set({
+      workspaces,
+      activeWorkspaceId: nextActive.id,
+      presets: nextActive.presets,
+      activePresetId: id === state.activeWorkspaceId ? null : state.activePresetId,
+      activePresetDirty: id === state.activeWorkspaceId ? false : state.activePresetDirty,
+    });
+    return undefined;
+  },
+
+  importWorkspace: (result, name, activate) => {
+    if (result.error || result.accepted.length === 0) return result.error ?? 'The import contains no valid presets.';
+    const state = get();
+    const error = validateWorkspaceName(name, state.workspaces);
+    if (error) return error;
+    const imported = createWorkspace(name, result.description ?? '', result.accepted.map((preset) => createPreset(preset.name, preset.targets, preset.description ?? '')));
+    const workspaces = [...state.workspaces, imported];
+    const activeWorkspaceId = activate ? imported.id : state.activeWorkspaceId;
+    const visible = activate ? imported.presets : state.presets;
+    persistWorkspaceCatalog({ version: 1, workspaces, activeWorkspaceId });
+    set({
+      workspaces,
+      activeWorkspaceId,
+      presets: visible,
+      ...(activate ? { activePresetId: null, activePresetDirty: false } : {}),
+    });
+    return undefined;
+  },
+
+  exportActiveWorkspace: (exportedAt) => {
+    const state = get();
+    const workspace = state.workspaces.find((item) => item.id === state.activeWorkspaceId) ?? createDefaultWorkspace().workspaces[0];
+    return serializeWorkspace({ ...workspace, presets: state.presets }, exportedAt);
   },
 
   savePreset: (name, description = '') => {
@@ -384,8 +520,13 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
     if (!trimmed || targets.length === 0) return;
     const created = createPreset(trimmed, targets, description);
     const next = [...presets, created];
-    savePresets(next);
-    set({ presets: next, activePresetId: created.id, activePresetDirty: false });
+    persistState(get(), next);
+    set((state) => ({
+      presets: next,
+      workspaces: catalogWithPresets(state, next).workspaces,
+      activePresetId: created.id,
+      activePresetDirty: false,
+    }));
   },
 
   updatePreset: (id, name, description, targets) => {
@@ -408,9 +549,10 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
           }
         : preset,
     );
-    savePresets(next);
+    persistState(get(), next);
     set((state) => ({
       presets: next,
+      workspaces: catalogWithPresets(state, next).workspaces,
       ...(state.activePresetId === id
         ? {
             targets: nextTargets,
@@ -429,9 +571,10 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
     const preset = get().presets.find((p) => p.id === id);
     if (!preset) return;
     const presets = markPresetUsed(get().presets, id);
-    savePresets(presets);
-    set({
+    persistState(get(), presets);
+    set((state) => ({
       presets,
+      workspaces: catalogWithPresets(state, presets).workspaces,
       targets: preset.targets.map((t) => ({ ...t })),
       activePresetId: id,
       activePresetDirty: false,
@@ -440,14 +583,15 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
       hasQueried: false,
       podsError: undefined,
       lastUpdatedAt: undefined,
-    });
+    }));
   },
 
   deletePreset: (id) => {
     const next = get().presets.filter((p) => p.id !== id);
-    savePresets(next);
+    persistState(get(), next);
     set((state) => ({
       presets: next,
+      workspaces: catalogWithPresets(state, next).workspaces,
       ...(state.activePresetId === id
         ? { activePresetId: null, activePresetDirty: false }
         : {}),
@@ -469,13 +613,18 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
     const next = [...current, ...accepted.map((preset) =>
       createPreset(preset.name, preset.targets, preset.description ?? ''),
     )];
-    savePresets(next);
-    set({ presets: next });
+    persistState(get(), next);
+    set((state) => ({ presets: next, workspaces: catalogWithPresets(state, next).workspaces }));
   },
 
   clearPresets: () => {
-    savePresets([]);
-    set({ presets: [], activePresetId: null, activePresetDirty: false });
+    persistState(get(), []);
+    set((state) => ({
+      presets: [],
+      workspaces: catalogWithPresets(state, []).workspaces,
+      activePresetId: null,
+      activePresetDirty: false,
+    }));
   },
   };
 });
