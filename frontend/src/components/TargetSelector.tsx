@@ -28,6 +28,7 @@ import { useOpsFlowStore } from '../store';
 import { targetKey, type NamespaceInfo } from '../types';
 import { parseWorkspaceImportFile, validateWorkspaceName, type Workspace, type WorkspaceImportResult } from '../workspaces';
 import { ErrorState, LoadingState } from './Feedback';
+import { DestructiveConfirmation } from './DestructiveConfirmation';
 import { NamespaceInput } from './NamespaceInput';
 import { KubeconfigSetup } from './KubeconfigSetup';
 
@@ -411,6 +412,7 @@ function PresetSection({ openRequest, resetRequest }: { openRequest: number; res
   const presets = useOpsFlowStore((s) => s.presets);
   const targets = useOpsFlowStore((s) => s.targets);
   const contexts = useOpsFlowStore((s) => s.contexts);
+  const activeWorkspace = useOpsFlowStore((s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId));
   const updatePreset = useOpsFlowStore((s) => s.updatePreset);
   const activePresetId = useOpsFlowStore((s) => s.activePresetId);
   const activePresetDirty = useOpsFlowStore((s) => s.activePresetDirty);
@@ -482,10 +484,7 @@ function PresetSection({ openRequest, resetRequest }: { openRequest: number; res
             if (applyingPresetId) return;
             setEditingPresetId(id);
           }}
-          onDelete={(id) => {
-            if (applyingPresetId || id === editingPresetId) return;
-            useOpsFlowStore.getState().deletePreset(id);
-          }}
+          workspaceName={activeWorkspace?.name ?? 'Active Workspace'}
         />
       )}
 
@@ -506,6 +505,11 @@ function PresetSection({ openRequest, resetRequest }: { openRequest: number; res
 }
 
 type BundleConflictStrategy = 'overwrite' | 'skip' | 'resolve';
+
+type WorkspaceDeleteIntent =
+  | { kind: 'workspace'; id: string }
+  | { kind: 'selected'; ids: string[] }
+  | { kind: 'keep-active-only'; ids: string[]; activeId: string };
 
 export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: () => void }) {
   const workspaces = useOpsFlowStore((state) => state.workspaces);
@@ -540,10 +544,14 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
   const [conflictResolutionPosition, setConflictResolutionPosition] = useState<number | null>(null);
   const [conflictResolutionNames, setConflictResolutionNames] = useState<Record<number, string>>({});
   const [conflictResolutionSkipped, setConflictResolutionSkipped] = useState<Set<number>>(new Set());
+  const [workspaceDeleteIntent, setWorkspaceDeleteIntent] = useState<WorkspaceDeleteIntent | null>(null);
+  const [workspaceDeletePending, setWorkspaceDeletePending] = useState(false);
+  const [workspaceDeleteError, setWorkspaceDeleteError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
+  const workspaceDeleteTriggerRef = useRef<HTMLElement | null>(null);
   const activePreset = presets.find((preset) => preset.id === activePresetId);
-  const managerBusy = Boolean(fileOperation);
+  const managerBusy = Boolean(fileOperation) || workspaceDeletePending;
   const canUpdateActivePreset = Boolean(activePreset && activePresetDirty && targets.length > 0);
   const visibleWorkspaces = useMemo(() => {
     const needle = workspaceQuery.trim().toLowerCase();
@@ -638,6 +646,7 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       if (managerBusy) return;
+      if (workspaceDeleteIntent) return;
       if (importPreview) {
         setImportPreview(null);
         return;
@@ -659,7 +668,7 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [closeImportBundle, conflictResolutionPosition, importCandidates, importConflictIndexes, importPreview, managerBusy, open, workspaceEditor]);
+  }, [closeImportBundle, conflictResolutionPosition, importCandidates, importConflictIndexes, importPreview, managerBusy, open, workspaceDeleteIntent, workspaceEditor]);
 
   const beginCreate = () => {
     clearWorkspaceSelection();
@@ -840,38 +849,91 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
     setActivateImport(false);
   };
 
-  const confirmDelete = (workspaceId: string) => {
+  const openWorkspaceDelete = (workspaceId: string, trigger: HTMLElement) => {
+    if (managerBusy) return;
     const target = workspaces.find((workspace) => workspace.id === workspaceId);
     if (!target) return;
     if (workspaces.length <= 1) {
       setStatus('At least one Workspace must remain.');
       return;
     }
-    if (!window.confirm(`Delete Workspace "${target.name}" and its ${target.presets.length} preset(s)?`)) return;
-    const error = deleteWorkspace(workspaceId);
-    clearWorkspaceSelection();
-    setStatus(error ?? 'Workspace deleted.');
+    setWorkspaceDeleteError(null);
+    workspaceDeleteTriggerRef.current = trigger;
+    setWorkspaceDeleteIntent({ kind: 'workspace', id: workspaceId });
   };
 
-  const confirmDeleteSelected = () => {
-    if (selectedWorkspaceIds.length === 0) return;
-    if (selectedWorkspaceIds.length >= workspaces.length) {
+  const openSelectedWorkspaceDelete = (trigger: HTMLElement) => {
+    if (managerBusy) return;
+    const ids = [...new Set(selectedWorkspaceIds)].filter((id) => workspaces.some((workspace) => workspace.id === id));
+    if (ids.length === 0) return;
+    if (ids.length >= workspaces.length) {
       setStatus('At least one Workspace must remain. Use Delete all except active to clear the other Workspaces.');
       return;
     }
-    if (!window.confirm(`Delete ${selectedWorkspaceIds.length} selected Workspace${selectedWorkspaceIds.length === 1 ? '' : 's'}?`)) return;
-    const error = deleteWorkspaces(selectedWorkspaceIds);
-    clearWorkspaceSelection();
-    setStatus(error ?? 'Selected Workspaces deleted.');
+    setWorkspaceDeleteError(null);
+    workspaceDeleteTriggerRef.current = trigger;
+    setWorkspaceDeleteIntent({ kind: 'selected', ids });
   };
 
-  const confirmDeleteAllExceptActive = () => {
+  const openKeepActiveOnlyDelete = (trigger: HTMLElement) => {
+    if (managerBusy) return;
     const ids = workspaces.filter((workspace) => workspace.id !== activeWorkspaceId).map((workspace) => workspace.id);
     if (ids.length === 0) return;
-    if (!window.confirm(`Delete all ${ids.length} Workspace${ids.length === 1 ? '' : 's'} except the active Workspace?`)) return;
-    const error = deleteWorkspaces(ids);
-    clearWorkspaceSelection();
-    setStatus(error ?? 'All other Workspaces deleted.');
+    setWorkspaceDeleteError(null);
+    workspaceDeleteTriggerRef.current = trigger;
+    setWorkspaceDeleteIntent({ kind: 'keep-active-only', ids, activeId: activeWorkspaceId });
+  };
+
+  const confirmWorkspaceDeletion = async () => {
+    if (!workspaceDeleteIntent || workspaceDeletePending) return;
+    const intent = workspaceDeleteIntent;
+    setWorkspaceDeletePending(true);
+    setWorkspaceDeleteError(null);
+    await Promise.resolve();
+    try {
+      if (intent.kind === 'workspace') {
+        const target = useOpsFlowStore.getState().workspaces.find((workspace) => workspace.id === intent.id);
+        if (!target) {
+          setWorkspaceDeleteIntent(null);
+          setStatus('Workspace no longer exists.');
+          return;
+        }
+        const error = deleteWorkspace(intent.id);
+        if (error) {
+          setWorkspaceDeleteError(error);
+          return;
+        }
+        clearWorkspaceSelection();
+        setWorkspaceDeleteIntent(null);
+        setStatus('Workspace deleted.');
+        return;
+      }
+
+      const currentWorkspaceIds = useOpsFlowStore.getState().workspaces.map((workspace) => workspace.id);
+      const currentIds = intent.ids.filter((id) => currentWorkspaceIds.includes(id));
+      if (currentIds.length !== intent.ids.length) {
+        setWorkspaceDeleteIntent(null);
+        setStatus('The Workspace selection changed. Review the manager and try again.');
+        return;
+      }
+      if (currentIds.length === 0 || currentIds.length >= currentWorkspaceIds.length) {
+        setWorkspaceDeleteIntent(null);
+        setStatus('At least one Workspace must remain.');
+        return;
+      }
+      const error = deleteWorkspaces(currentIds);
+      if (error) {
+        setWorkspaceDeleteError(error);
+        return;
+      }
+      clearWorkspaceSelection();
+      setWorkspaceDeleteIntent(null);
+      setStatus(intent.kind === 'selected' ? 'Selected Workspaces deleted.' : 'All other Workspaces deleted.');
+    } catch {
+      setWorkspaceDeleteError('The Workspace could not be deleted.');
+    } finally {
+      setWorkspaceDeletePending(false);
+    }
   };
 
   const submitImport = () => {
@@ -901,6 +963,46 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
   const editorWorkspace = workspaceEditor?.mode === 'rename'
     ? workspaces.find((workspace) => workspace.id === workspaceEditor.workspaceId) ?? null
     : null;
+  const deletingWorkspace = workspaceDeleteIntent?.kind === 'workspace'
+    ? workspaces.find((workspace) => workspace.id === workspaceDeleteIntent.id)
+    : undefined;
+  const deletingWorkspaces = workspaceDeleteIntent && workspaceDeleteIntent.kind !== 'workspace'
+    ? workspaces.filter((workspace) => workspaceDeleteIntent.ids.includes(workspace.id))
+    : [];
+  const retainedWorkspace = workspaceDeleteIntent?.kind === 'keep-active-only'
+    ? workspaces.find((workspace) => workspace.id === workspaceDeleteIntent.activeId)
+    : undefined;
+  const selectedPresetCount = deletingWorkspace
+    ? deletingWorkspace.presets.length
+    : deletingWorkspaces.reduce((count, workspace) => count + workspace.presets.length, 0);
+  const activeDeletion = deletingWorkspace?.id === activeWorkspaceId
+    || deletingWorkspaces.some((workspace) => workspace.id === activeWorkspaceId);
+  const fallbackWorkspace = deletingWorkspace && activeDeletion
+    ? workspaces.filter((workspace) => workspace.id !== deletingWorkspace.id)[Math.min(
+      workspaces.findIndex((workspace) => workspace.id === deletingWorkspace.id),
+      workspaces.length - 2,
+    )]
+    : undefined;
+  const workspaceDeleteTitle = deletingWorkspace
+    ? `Delete Workspace "${deletingWorkspace.name}"?`
+    : workspaceDeleteIntent?.kind === 'keep-active-only'
+      ? 'Keep the active Workspace only?'
+      : `Delete ${deletingWorkspaces.length} selected Workspace${deletingWorkspaces.length === 1 ? '' : 's'}?`;
+  const workspaceDeleteDescription = deletingWorkspace
+    ? `This will remove ${deletingWorkspace.name} and its ${selectedPresetCount} saved preset${selectedPresetCount === 1 ? '' : 's'}. ${activeDeletion ? `"${fallbackWorkspace?.name ?? 'the surviving Workspace'}" will become active without applying a fallback preset. ` : ''}Current targets, pod results, filters, logs, theme, and query state will remain unchanged.`
+    : workspaceDeleteIntent?.kind === 'keep-active-only'
+      ? `This will remove ${deletingWorkspaces.length} Workspace${deletingWorkspaces.length === 1 ? '' : 's'} and keep "${retainedWorkspace?.name ?? 'the active Workspace'}" active. ${selectedPresetCount} saved preset${selectedPresetCount === 1 ? '' : 's'} will be removed; no fallback preset or operational reset will be applied.`
+      : `This will remove ${deletingWorkspaces.length} selected Workspace${deletingWorkspaces.length === 1 ? '' : 's'} and ${selectedPresetCount} saved preset${selectedPresetCount === 1 ? '' : 's'}. ${activeDeletion ? 'The existing deterministic surviving Workspace will become active without applying a fallback preset. ' : ''}Current targets, pod results, filters, logs, theme, and query state will remain unchanged.`;
+  const workspaceDeleteContext = deletingWorkspace ? (
+    <p><strong>{deletingWorkspace.name}</strong> · {selectedPresetCount} saved preset{selectedPresetCount === 1 ? '' : 's'} · {activeDeletion ? 'Active Workspace' : 'Inactive Workspace'}</p>
+  ) : (
+    <div>
+      <p><strong>{deletingWorkspaces.length} Workspace{deletingWorkspaces.length === 1 ? '' : 's'}</strong> · {selectedPresetCount} saved preset{selectedPresetCount === 1 ? '' : 's'} total</p>
+      <ul aria-label="Workspaces to delete">
+        {deletingWorkspaces.map((workspace) => <li key={workspace.id}>{workspace.name}{workspace.id === activeWorkspaceId ? ' (active)' : ''}</li>)}
+      </ul>
+    </div>
+  );
 
   return (
     <section className="workspace-section" aria-label="Active workspace and preset">
@@ -1004,7 +1106,7 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
                 <button type="button" className="icon-button subtle" onClick={() => beginRename(workspace)} aria-label={`Rename Workspace ${workspace.name}`} title="Rename Workspace" disabled={managerBusy}>
                   <Pencil size={13} />
                 </button>
-                <button type="button" className="icon-button subtle danger" onClick={() => confirmDelete(workspace.id)} aria-label={`Delete Workspace ${workspace.name}`} title="Delete Workspace" disabled={workspaces.length <= 1 || managerBusy}>
+                  <button type="button" className="icon-button subtle danger" onClick={(event) => openWorkspaceDelete(workspace.id, event.currentTarget)} aria-label={`Delete Workspace ${workspace.name}`} title="Delete Workspace" disabled={workspaces.length <= 1 || managerBusy}>
                   <Trash2 size={13} />
                 </button>
               </div>
@@ -1039,11 +1141,27 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
             />
           </div>
           <div className="workspace-manager-danger-actions" aria-label="Workspace deletion actions">
-            {selectedWorkspaceIds.length > 0 && <button type="button" className="workspace-danger-action" onClick={confirmDeleteSelected} disabled={managerBusy} title="Delete selected Workspaces" aria-label="Delete selected Workspaces"><Trash2 size={12} /> <span>Remove selected</span></button>}
-            {workspaces.length > 1 && <button type="button" className="workspace-danger-action" onClick={confirmDeleteAllExceptActive} disabled={managerBusy} title="Delete all Workspaces except the active Workspace" aria-label="Delete all Workspaces except the active Workspace"><Trash2 size={12} /> <span>Keep active only</span></button>}
+            {selectedWorkspaceIds.length > 0 && <button type="button" className="workspace-danger-action" onClick={(event) => openSelectedWorkspaceDelete(event.currentTarget)} disabled={managerBusy} title="Delete selected Workspaces" aria-label="Delete selected Workspaces"><Trash2 size={12} /> <span>Remove selected</span></button>}
+            {workspaces.length > 1 && <button type="button" className="workspace-danger-action" onClick={(event) => openKeepActiveOnlyDelete(event.currentTarget)} disabled={managerBusy} title="Delete all Workspaces except the active Workspace" aria-label="Delete all Workspaces except the active Workspace"><Trash2 size={12} /> <span>Keep active only</span></button>}
           </div>
           {selectedWorkspaceIds.length > 0 && <p className="workspace-selection-status" role="status">{selectedWorkspaceIds.length} Workspace{selectedWorkspaceIds.length === 1 ? '' : 's'} selected for export.</p>}
           {fileOperation && <p className="workspace-status" role="status" aria-live="polite"><Loader size={13} className="spinning" /> {fileOperation === 'importing' ? 'Reading Workspace...' : 'Preparing Workspace download...'}</p>}
+          {workspaceDeleteIntent && (
+            <DestructiveConfirmation
+              title={workspaceDeleteTitle}
+              description={workspaceDeleteDescription}
+              context={workspaceDeleteContext}
+              confirmLabel={workspaceDeleteIntent.kind === 'workspace' ? 'Delete Workspace' : 'Delete Workspaces'}
+              pending={workspaceDeletePending}
+              error={workspaceDeleteError}
+              onCancel={() => {
+                if (!workspaceDeletePending) setWorkspaceDeleteIntent(null);
+              }}
+              onConfirm={confirmWorkspaceDeletion}
+              restoreFocusRef={workspaceDeleteTriggerRef}
+              fallbackFocusRef={dialogRef}
+            />
+          )}
           </section>
         </div>
       )}
@@ -1260,11 +1378,15 @@ interface PresetLibraryProps {
   activePresetDirty: boolean;
   startNaming: boolean;
   applyingPresetId: string | null;
+  workspaceName: string;
   onClose: () => void;
   onApply: (id: string) => void;
   onEdit: (id: string) => void;
-  onDelete: (id: string) => void;
 }
+
+type PresetDeleteIntent =
+  | { kind: 'preset'; id: string; trigger: HTMLElement }
+  | { kind: 'all'; trigger: HTMLElement };
 
 function PresetLibrary({
   presets,
@@ -1273,18 +1395,33 @@ function PresetLibrary({
   activePresetDirty,
   startNaming,
   applyingPresetId,
+  workspaceName,
   onClose,
   onApply,
   onEdit,
-  onDelete,
 }: PresetLibraryProps) {
   const savePreset = useOpsFlowStore((s) => s.savePreset);
+  const deletePreset = useOpsFlowStore((s) => s.deletePreset);
   const clearPresets = useOpsFlowStore((s) => s.clearPresets);
   const [query, setQuery] = useState('');
   const [naming, setNaming] = useState(startNaming);
   const [name, setName] = useState('');
-  const [deleteAllOpen, setDeleteAllOpen] = useState(false);
-  const libraryBusy = Boolean(applyingPresetId);
+  const [deleteIntent, setDeleteIntent] = useState<PresetDeleteIntent | null>(null);
+  const [deletePending, setDeletePending] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const libraryBusy = Boolean(applyingPresetId) || deletePending;
+  const libraryRef = useRef<HTMLElement>(null);
+  const deleteTriggerRef = useRef<HTMLElement | null>(null);
+  const activeDeletePreset = deleteIntent?.kind === 'preset'
+    ? presets.find((preset) => preset.id === deleteIntent.id)
+    : undefined;
+
+  useEffect(() => {
+    if (deleteIntent?.kind === 'preset' && !activeDeletePreset) {
+      setDeleteIntent(null);
+      setDeleteError('The preset no longer exists.');
+    }
+  }, [activeDeletePreset, deleteIntent]);
 
   const visiblePresets = useMemo(() => {
     const orderedPresets = orderPresetsByRecentUse(presets);
@@ -1314,15 +1451,12 @@ function PresetLibrary({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       if (libraryBusy) return;
-      if (deleteAllOpen) {
-        setDeleteAllOpen(false);
-        return;
-      }
+      if (deleteIntent) return;
       onClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [deleteAllOpen, libraryBusy, onClose]);
+  }, [deleteIntent, libraryBusy, onClose]);
 
   const closeLibrary = () => {
     if (libraryBusy) return;
@@ -1336,7 +1470,7 @@ function PresetLibrary({
         if (event.target === event.currentTarget) closeLibrary();
       }}
     >
-      <section className="preset-library" role="dialog" aria-modal="true" aria-labelledby="preset-library-title" aria-busy={libraryBusy}>
+      <section ref={libraryRef} className="preset-library" role="dialog" aria-modal="true" aria-labelledby="preset-library-title" aria-busy={libraryBusy}>
         <div className="preset-library-header">
           <div>
             <span className="eyebrow">Saved target combinations</span>
@@ -1363,6 +1497,8 @@ function PresetLibrary({
             <span>Loading pods for <strong>{presets.find((preset) => preset.id === applyingPresetId)?.name ?? 'selected preset'}</strong>...</span>
           </div>
         )}
+
+        {deleteError && <p className="preset-library-feedback is-error" role="alert">{deleteError}</p>}
 
         <div className="preset-library-toolbar">
           {presets.length > 0 ? (
@@ -1392,7 +1528,11 @@ function PresetLibrary({
             <button
               type="button"
               className="text-button danger-text preset-delete-all"
-              onClick={() => setDeleteAllOpen(true)}
+              onClick={(event) => {
+                setDeleteError(null);
+                deleteTriggerRef.current = event.currentTarget;
+                setDeleteIntent({ kind: 'all', trigger: event.currentTarget });
+              }}
               disabled={libraryBusy}
             >
               <Trash2 size={12} /> Delete all
@@ -1450,7 +1590,18 @@ function PresetLibrary({
                 <button type="button" className="icon-button subtle" onClick={() => onEdit(preset.id)} aria-label={`Edit preset ${preset.name}`} title={`Edit ${preset.name}`} disabled={libraryBusy}>
                   <Pencil size={13} />
                 </button>
-                <button type="button" className="icon-button subtle danger" onClick={() => onDelete(preset.id)} aria-label={`Remove preset ${preset.name}`} title={`Remove ${preset.name}`} disabled={libraryBusy}>
+                <button
+                  type="button"
+                  className="icon-button subtle danger"
+                  onClick={(event) => {
+                    setDeleteError(null);
+                    deleteTriggerRef.current = event.currentTarget;
+                    setDeleteIntent({ kind: 'preset', id: preset.id, trigger: event.currentTarget });
+                  }}
+                  aria-label={`Remove preset ${preset.name}`}
+                  title={`Remove ${preset.name}`}
+                  disabled={libraryBusy}
+                >
                   <Trash2 size={13} />
                 </button>
               </div>
@@ -1460,14 +1611,41 @@ function PresetLibrary({
           {presets.length > 0 && visiblePresets.length === 0 && <p className="sidebar-hint">No preset matches the search.</p>}
         </div>
 
-        {deleteAllOpen && (
-          <PresetDeleteAllDialog
+        {deleteIntent && (
+          <PresetDeleteConfirmation
+            intent={deleteIntent}
+            preset={activeDeletePreset}
+            workspaceName={workspaceName}
             count={presets.length}
-            onCancel={() => setDeleteAllOpen(false)}
-            onConfirm={() => {
-              clearPresets();
-              setDeleteAllOpen(false);
+            pending={deletePending}
+            error={deleteError}
+            onCancel={() => {
+              if (!deletePending) setDeleteIntent(null);
             }}
+            onConfirm={async () => {
+              if (deletePending) return;
+              setDeletePending(true);
+              setDeleteError(null);
+              try {
+                if (deleteIntent.kind === 'preset') {
+                  if (!useOpsFlowStore.getState().presets.some((preset) => preset.id === deleteIntent.id)) {
+                    setDeleteIntent(null);
+                    setDeleteError('The preset no longer exists.');
+                    return;
+                  }
+                  deletePreset(deleteIntent.id);
+                } else {
+                  clearPresets();
+                }
+                setDeleteIntent(null);
+              } catch {
+                setDeleteError('The preset could not be deleted.');
+              } finally {
+                setDeletePending(false);
+              }
+            }}
+            restoreFocusRef={deleteTriggerRef}
+            fallbackFocusRef={libraryRef}
           />
         )}
       </section>
@@ -1475,40 +1653,52 @@ function PresetLibrary({
   );
 }
 
-function PresetDeleteAllDialog({
+function PresetDeleteConfirmation({
+  intent,
+  preset,
+  workspaceName,
   count,
+  pending,
+  error,
   onCancel,
   onConfirm,
+  restoreFocusRef,
+  fallbackFocusRef,
 }: {
+  intent: PresetDeleteIntent;
+  preset: Preset | undefined;
+  workspaceName: string;
   count: number;
+  pending: boolean;
+  error: string | null;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
+  restoreFocusRef: { current: HTMLElement | null };
+  fallbackFocusRef: { current: HTMLElement | null };
 }) {
+  if (intent.kind === 'preset' && !preset) return null;
+  const targetSummary = preset
+    ? preset.targets.map((target) => `${target.cluster}/${target.namespace}`).join(', ')
+    : '';
+  const description = intent.kind === 'all'
+    ? `This will remove all ${count} saved preset${count === 1 ? '' : 's'} from ${workspaceName}. Current targets, pod results, filters, logs, and other operational state will remain unchanged.`
+    : `This will remove the saved preset from ${workspaceName}. Current targets, pod results, filters, logs, and other operational state will remain unchanged${preset?.id ? preset.id === useOpsFlowStore.getState().activePresetId ? '; the active saved reference will be cleared, but live targets remain' : '' : ''}.`;
+
   return (
-    <div className="preset-dialog-layer" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onCancel();
-    }}>
-      <section className="preset-secondary-dialog" role="dialog" aria-modal="true" aria-labelledby="preset-delete-all-title">
-        <div className="preset-secondary-dialog-header">
-          <div>
-            <span className="eyebrow">Destructive action</span>
-            <h3 id="preset-delete-all-title">Delete all presets?</h3>
-          </div>
-          <button type="button" className="icon-button subtle" onClick={onCancel} aria-label="Close delete all confirmation">
-            <X size={15} />
-          </button>
-        </div>
-        <p className="preset-dialog-summary">
-          This will remove {count} saved preset{count === 1 ? '' : 's'}. Your current targets, table, and view will remain unchanged.
-        </p>
-        <div className="preset-secondary-dialog-actions">
-          <button type="button" className="secondary-button" onClick={onCancel}>Cancel</button>
-          <button type="button" className="primary-button danger-button" onClick={onConfirm}>
-            <Trash2 size={13} /> Delete all
-          </button>
-        </div>
-      </section>
-    </div>
+    <DestructiveConfirmation
+      title={intent.kind === 'all' ? 'Delete all presets?' : `Delete preset "${preset?.name}"?`}
+      description={description}
+      context={intent.kind === 'preset' && preset ? (
+        <p><strong>{preset.targets.length} target{preset.targets.length === 1 ? '' : 's'}</strong>: {targetSummary}</p>
+      ) : <p><strong>{count} saved preset{count === 1 ? '' : 's'}</strong> in the Active Workspace.</p>}
+      confirmLabel={intent.kind === 'all' ? 'Delete all' : 'Delete preset'}
+      pending={pending}
+      error={error}
+      onCancel={onCancel}
+      onConfirm={onConfirm}
+      restoreFocusRef={restoreFocusRef}
+      fallbackFocusRef={fallbackFocusRef}
+    />
   );
 }
 
