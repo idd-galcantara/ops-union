@@ -84,6 +84,16 @@ export function NamespaceInput({
     setActiveIndex(-1);
   };
 
+  const selectVisible = () => {
+    suggestions.forEach((suggestion) => onSelectNamespace(suggestion.name));
+    if (suggestions.length > 0) onChange('');
+    setActiveIndex(-1);
+  };
+
+  const clearAll = () => {
+    selectedNamespaces.forEach((name) => onRemoveNamespace(name));
+  };
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'ArrowDown') {
       event.preventDefault();
@@ -150,6 +160,9 @@ export function NamespaceInput({
                   </button>
                 </span>
               ))}
+              <button type="button" className="text-button namespace-selection-action" onMouseDown={(event) => event.preventDefault()} onClick={clearAll} aria-label="Clear all selected namespaces">
+                Clear all
+              </button>
             </div>
           )}
           <input
@@ -210,6 +223,12 @@ export function NamespaceInput({
 
       {showPanel && (
         <div className="namespace-suggestions" id="namespace-suggestions" role="listbox">
+          <div className="namespace-suggestion-actions" role="group" aria-label="Namespace selection actions">
+            <button type="button" className="text-button" onMouseDown={(event) => event.preventDefault()} onClick={selectVisible} disabled={suggestions.length === 0}>
+              Select visible
+            </button>
+            {selectedNamespaces.length > 0 && <button type="button" className="text-button" onMouseDown={(event) => event.preventDefault()} onClick={clearAll}>Clear all</button>}
+          </div>
           {suggestions.map((suggestion, index) => {
             const reach = describeNamespaceReach(suggestion, selectedClusters.length);
             return (

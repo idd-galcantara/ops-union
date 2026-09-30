@@ -6,9 +6,10 @@ import {
   createDefaultWorkspace,
   getInitialWorkspaceCatalog,
   loadWorkspaceCatalog,
-  nextImportedWorkspaceName,
   parseWorkspaceImport,
+  parseWorkspaceImportFile,
   serializeWorkspace,
+  serializeWorkspaceBundle,
 } from './workspaces';
 
 function installStorage(initial: Record<string, string> = {}): Map<string, string> {
@@ -82,7 +83,18 @@ test('Workspace export contains only portable current-Workspace fields', () => {
   assert.equal(JSON.stringify(document).includes('lastUsedAt'), false);
 });
 
-test('Workspace import previews invalid entries and deterministic collision names', () => {
+test('Workspace bundle exports and parses multiple Workspaces as individual candidates', () => {
+  const first = createDefaultWorkspace([createPreset('Production', [{ cluster: 'prod', namespace: 'pay' }])]).workspaces[0];
+  const second = { ...first, id: 'second', name: 'Staging', presets: [createPreset('Staging', [{ cluster: 'stage', namespace: 'pay' }])] };
+  const file = parseWorkspaceImportFile(serializeWorkspaceBundle([first, second], '2026-09-30T12:00:00.000Z'));
+
+  assert.equal(file.error, undefined);
+  assert.deepEqual(file.workspaces.map((workspace) => workspace.workspaceName), ['My Workspace', 'Staging']);
+  assert.deepEqual(file.workspaces.map((workspace) => workspace.accepted.length), [1, 1]);
+  assert.equal(parseWorkspaceImport(serializeWorkspaceBundle([first, second])).workspaceName, 'My Workspace');
+});
+
+test('Workspace import preserves the source name for duplicate-name validation', () => {
   const existing = createDefaultWorkspace();
   existing.workspaces[0].name = 'Payments Team';
   const result = parseWorkspaceImport(JSON.stringify({
@@ -91,15 +103,11 @@ test('Workspace import previews invalid entries and deterministic collision name
       ...JSON.parse(workspaceDocument()).presets,
       { name: 'broken', targets: [{ cluster: '', namespace: 'missing' }] },
     ],
-  }), existing.workspaces);
+  }));
 
   assert.equal(result.accepted.length, 2);
   assert.equal(result.invalid.length, 1);
-  assert.equal(result.suggestedName, 'Payments Team (imported)');
-  assert.equal(nextImportedWorkspaceName('Payments Team', [
-    ...existing.workspaces,
-    { ...existing.workspaces[0], id: 'second', name: 'Payments Team (imported)' },
-  ]), 'Payments Team (imported 2)');
+  assert.equal(result.suggestedName, 'Payments Team');
 });
 
 test('Workspace management scopes presets without changing operational state', () => {
@@ -157,7 +165,7 @@ test('import creates fresh local preset ids and does not activate by default', (
   });
 
   try {
-    const result = parseWorkspaceImport(workspaceDocument(), first.workspaces);
+    const result = parseWorkspaceImport(workspaceDocument());
     assert.equal(useOpsFlowStore.getState().importWorkspace(result, result.suggestedName ?? 'Imported', false), undefined);
     const state = useOpsFlowStore.getState();
     assert.equal(state.workspaces.length, 2);
@@ -166,6 +174,51 @@ test('import creates fresh local preset ids and does not activate by default', (
     assert.equal(state.workspaces[1].presets[0].id === 'Production', false);
     assert.deepEqual(state.targets, [{ cluster: 'live', namespace: 'ns' }]);
     assert.equal(state.activePresetId, first.workspaces[0].presets[0].id);
+  } finally {
+    useOpsFlowStore.setState(original);
+  }
+});
+
+test('import can explicitly overwrite an existing Workspace and clears its active preset', () => {
+  const original = useOpsFlowStore.getState();
+  const first = createDefaultWorkspace([createPreset('Current', [{ cluster: 'c', namespace: 'n' }])]);
+  first.workspaces[0].name = 'Payments Team';
+  useOpsFlowStore.setState({
+    workspaces: first.workspaces,
+    activeWorkspaceId: first.activeWorkspaceId,
+    presets: first.workspaces[0].presets,
+    activePresetId: first.workspaces[0].presets[0].id,
+  });
+
+  try {
+    const result = parseWorkspaceImport(workspaceDocument());
+    assert.equal(useOpsFlowStore.getState().importWorkspace(result, 'Payments Team', true, { overwrite: true }), undefined);
+    const state = useOpsFlowStore.getState();
+    assert.equal(state.workspaces.length, 1);
+    assert.equal(state.workspaces[0].id, first.activeWorkspaceId);
+    assert.equal(state.presets[0].name, 'Production');
+    assert.equal(state.activeWorkspaceId, first.activeWorkspaceId);
+    assert.equal(state.activePresetId, null);
+  } finally {
+    useOpsFlowStore.setState(original);
+  }
+});
+
+test('bulk Workspace deletion keeps one Workspace and switches when active is removed', () => {
+  const original = useOpsFlowStore.getState();
+  const first = createDefaultWorkspace([createPreset('Current', [{ cluster: 'c', namespace: 'n' }])]);
+  const second = { ...first.workspaces[0], id: 'second', name: 'Second', presets: [] };
+  useOpsFlowStore.setState({
+    workspaces: [first.workspaces[0], second],
+    activeWorkspaceId: first.workspaces[0].id,
+    presets: first.workspaces[0].presets,
+  });
+
+  try {
+    assert.equal(useOpsFlowStore.getState().deleteWorkspaces([first.workspaces[0].id, second.id]), 'At least one Workspace must remain.');
+    assert.equal(useOpsFlowStore.getState().deleteWorkspaces([first.workspaces[0].id]), undefined);
+    assert.equal(useOpsFlowStore.getState().activeWorkspaceId, second.id);
+    assert.equal(useOpsFlowStore.getState().workspaces.length, 1);
   } finally {
     useOpsFlowStore.setState(original);
   }

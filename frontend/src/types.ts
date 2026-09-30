@@ -246,6 +246,7 @@ export interface NormalizedPod {
   ready: string;
   restarts: number;
   node: string;
+  imageTag?: string;
   ageSeconds: number;
   containers: string[];
   application: ApplicationIdentity;

@@ -28,6 +28,17 @@ export interface WorkspaceExportDocument {
   presets: PortablePreset[];
 }
 
+export interface WorkspaceBundleExportDocument {
+  format: 'ops-union.workspace-bundle';
+  version: 1;
+  exportedAt: string;
+  workspaces: Array<{
+    name: string;
+    description?: string;
+    presets: PortablePreset[];
+  }>;
+}
+
 export interface InvalidWorkspacePreset {
   index: number;
   name?: string;
@@ -43,8 +54,14 @@ export interface WorkspaceImportResult {
   suggestedName?: string;
 }
 
+export interface WorkspaceImportFileResult {
+  workspaces: WorkspaceImportResult[];
+  error?: string;
+}
+
 export const WORKSPACE_STORAGE_KEY = 'ops-union.workspaces.v1';
 export const WORKSPACE_EXPORT_FORMAT = 'ops-union.workspace';
+export const WORKSPACE_BUNDLE_EXPORT_FORMAT = 'ops-union.workspace-bundle';
 export const WORKSPACE_EXPORT_VERSION = 1;
 export const DEFAULT_WORKSPACE_NAME = 'My Workspace';
 
@@ -95,19 +112,6 @@ export function activeWorkspace(catalog: WorkspaceCatalog): Workspace {
   return findWorkspace(catalog, catalog.activeWorkspaceId) ?? catalog.workspaces[0];
 }
 
-export function nextImportedWorkspaceName(name: string, workspaces: Workspace[]): string {
-  const base = name.trim() || DEFAULT_WORKSPACE_NAME;
-  const isTaken = (candidate: string) => workspaces.some(
-    (workspace) => workspace.name.toLocaleLowerCase() === candidate.toLocaleLowerCase(),
-  );
-  const first = `${base} (imported)`;
-  if (!isTaken(base) && !isTaken(first)) return base;
-  if (!isTaken(first)) return first;
-  let suffix = 2;
-  while (isTaken(`${base} (imported ${suffix})`)) suffix += 1;
-  return `${base} (imported ${suffix})`;
-}
-
 export function serializeWorkspace(
   workspace: Workspace,
   exportedAt = new Date().toISOString(),
@@ -125,6 +129,23 @@ export function serializeWorkspace(
   return JSON.stringify(document, null, 2);
 }
 
+export function serializeWorkspaceBundle(
+  workspaces: Workspace[],
+  exportedAt = new Date().toISOString(),
+): string {
+  const document: WorkspaceBundleExportDocument = {
+    format: WORKSPACE_BUNDLE_EXPORT_FORMAT,
+    version: WORKSPACE_EXPORT_VERSION,
+    exportedAt,
+    workspaces: workspaces.map((workspace) => ({
+      name: workspace.name.trim(),
+      ...(workspace.description?.trim() ? { description: workspace.description.trim() } : {}),
+      presets: workspace.presets.map(toPortablePreset),
+    })),
+  };
+  return JSON.stringify(document, null, 2);
+}
+
 function toPortablePreset(preset: Preset): PortablePreset {
   return {
     name: preset.name.trim(),
@@ -133,50 +154,84 @@ function toPortablePreset(preset: Preset): PortablePreset {
   };
 }
 
-export function parseWorkspaceImport(raw: string, workspaces: Workspace[] = []): WorkspaceImportResult {
+export function parseWorkspaceImport(raw: string): WorkspaceImportResult {
+  const file = parseWorkspaceImportFile(raw);
+  return file.workspaces[0] ?? emptyWorkspaceImport(file.error ?? 'The Workspace document contains no workspaces.');
+}
+
+export function parseWorkspaceImportFile(raw: string): WorkspaceImportFileResult {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw) as unknown;
   } catch {
-    return emptyWorkspaceImport('The selected file is not valid JSON.');
+    return { workspaces: [], error: 'The selected file is not valid JSON.' };
   }
 
-  if (!isRecord(parsed) || parsed.format !== WORKSPACE_EXPORT_FORMAT) {
-    return emptyWorkspaceImport(`Unsupported Workspace document. Expected format "${WORKSPACE_EXPORT_FORMAT}".`);
+  if (!isRecord(parsed)) {
+    return { workspaces: [], error: `Unsupported Workspace document. Expected format "${WORKSPACE_EXPORT_FORMAT}".` };
   }
-  if (parsed.version !== WORKSPACE_EXPORT_VERSION) {
-    return emptyWorkspaceImport(`Unsupported Workspace document version: ${String(parsed.version)}.`);
+
+  if (parsed.format === WORKSPACE_EXPORT_FORMAT) {
+    const error = validateExportMetadata(parsed);
+    if (error) return { workspaces: [], error };
+    return { workspaces: [parseWorkspacePayload(parsed)] };
   }
-  if (typeof parsed.exportedAt !== 'string' || Number.isNaN(Date.parse(parsed.exportedAt))) {
-    return emptyWorkspaceImport('The Workspace document has an invalid exportedAt timestamp.');
+
+  if (parsed.format === WORKSPACE_BUNDLE_EXPORT_FORMAT) {
+    const error = validateExportMetadata(parsed);
+    if (error) return { workspaces: [], error };
+    if (!Array.isArray(parsed.workspaces) || parsed.workspaces.length === 0) {
+      return { workspaces: [], error: 'The Workspace bundle does not contain any workspaces.' };
+    }
+    return {
+      workspaces: parsed.workspaces.map((workspace) => parseWorkspacePayload({
+        workspace,
+        presets: isRecord(workspace) ? workspace.presets : undefined,
+      })),
+    };
   }
-  if (!isRecord(parsed.workspace) || typeof parsed.workspace.name !== 'string' || !parsed.workspace.name.trim()) {
+
+  return { workspaces: [], error: `Unsupported Workspace document. Expected format "${WORKSPACE_EXPORT_FORMAT}".` };
+}
+
+function validateExportMetadata(value: Record<string, unknown>): string | undefined {
+  if (value.version !== WORKSPACE_EXPORT_VERSION) {
+    return `Unsupported Workspace document version: ${String(value.version)}.`;
+  }
+  if (typeof value.exportedAt !== 'string' || Number.isNaN(Date.parse(value.exportedAt))) {
+    return 'The Workspace document has an invalid exportedAt timestamp.';
+  }
+  return undefined;
+}
+
+function parseWorkspacePayload(value: Record<string, unknown>): WorkspaceImportResult {
+  if (!isRecord(value.workspace) || typeof value.workspace.name !== 'string' || !value.workspace.name.trim()) {
     return emptyWorkspaceImport('The Workspace document is missing a valid workspace name.');
   }
-  if (parsed.workspace.description !== undefined && typeof parsed.workspace.description !== 'string') {
+  if (value.workspace.description !== undefined && typeof value.workspace.description !== 'string') {
     return emptyWorkspaceImport('Workspace description must be a string when provided.');
   }
-  if (!Array.isArray(parsed.presets)) {
+  if (!Array.isArray(value.presets)) {
     return emptyWorkspaceImport('The Workspace document is missing its presets array.');
   }
 
   const accepted: PortablePreset[] = [];
   const invalid: InvalidWorkspacePreset[] = [];
-  parsed.presets.forEach((value, index) => {
-    const result = normalizeImportedPreset(value, index);
+  value.presets.forEach((preset, index) => {
+    const result = normalizeImportedPreset(preset, index);
     if ('invalid' in result) invalid.push(result.invalid);
     else accepted.push(result.preset);
   });
 
-  const workspaceName = parsed.workspace.name.trim();
+  const workspaceName = value.workspace.name.trim();
   return {
     workspaceName,
-    ...(typeof parsed.workspace.description === 'string' && parsed.workspace.description.trim()
-      ? { description: parsed.workspace.description.trim() }
+    ...(typeof value.workspace.description === 'string' && value.workspace.description.trim()
+      ? { description: value.workspace.description.trim() }
       : {}),
     accepted,
     invalid,
-    suggestedName: nextImportedWorkspaceName(workspaceName, workspaces),
+    suggestedName: workspaceName,
   };
 }
 

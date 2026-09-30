@@ -113,7 +113,7 @@ function PodGroupTable({
             <th scope="col" className="numeric">
               Age
             </th>
-            <th scope="col">Node</th>
+            <th scope="col">Image tag</th>
           </tr>
         </thead>
         <tbody>
@@ -149,8 +149,8 @@ function PodGroupTable({
                 {pod.restarts}
               </td>
               <td className="mono-cell numeric">{formatAge(pod.ageSeconds)}</td>
-              <td className="mono-cell node-cell" title={pod.node}>
-                {pod.node || '—'}
+              <td className="mono-cell node-cell" title={pod.imageTag}>
+                {pod.imageTag || '—'}
               </td>
             </tr>
           ))}

@@ -1,8 +1,5 @@
 # ops-union — Design System
 
-A linha visual do ops-union segue o projeto irmão **our-flow**: mesma paleta terracota,
-tipografia e componentes base, para manter a família coesa.
-
 ## Tokens de cor
 
 ```css
@@ -38,7 +35,7 @@ tipografia e componentes base, para manter a família coesa.
 - **Mono:** DM Mono (eyebrows, badges, metadados, valores técnicos — normalmente `9-10px`, uppercase, `letter-spacing` leve).
 - Base do corpo: `#202735` sobre `#f3f4f6`.
 
-## Componentes base (herdados do our-flow)
+## Componentes base ()
 
 - **topbar**: altura 66px, fundo branco, `border-bottom: 1px solid var(--line)`.
 - **brand-lockup**: `brand-mark` quadrado 31px (`background: var(--ink)`, ícone branco, `border-radius: 8px`) + nome do produto.
@@ -56,4 +53,4 @@ tipografia e componentes base, para manter a família coesa.
 - **Status de pod**: mapear para as cores de estado — Running → `--ok`, Pending/warning → `--warn`, CrashLoopBackOff/Error → `--error`.
 - **Erros por alvo (target)**: banner com `--error-soft` / borda `--error`, sem esconder os resultados válidos.
 - **Logs ao vivo**: `live-badge` verde enquanto o WebSocket está em follow.
-- **Ícones**: biblioteca `lucide-react` (mesma do our-flow).
+- **Ícones**: biblioteca `lucide-react`

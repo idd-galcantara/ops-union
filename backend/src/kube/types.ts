@@ -28,6 +28,8 @@ export interface NormalizedPod {
   restarts: number;
   /** Node the pod is scheduled on, or "" when unscheduled. */
   node: string;
+  /** Application image tag, without a build suffix, or "" when unavailable. */
+  imageTag: string;
   /** Age in seconds since creation (frontend formats it). */
   ageSeconds: number;
   /** Container names, used for log/metrics selection. */

@@ -3,7 +3,7 @@
 ## Overview
 
 Version 1.0.0 establishes `Ops Union` as the product identity after the
-repository and codebase transition from `ops-flow`. The rename is deliberately
+repository and codebase transition from `ops-union`. The rename is deliberately
 split between a human-facing product name and stable technical identifiers so
 the installed desktop application remains update-compatible.
 

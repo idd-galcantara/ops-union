@@ -62,6 +62,15 @@ function ageSeconds(pod: V1Pod, now: number): number {
   return Math.max(0, Math.floor((now - createdMs) / 1000));
 }
 
+/** Returns the release portion of an image tag, dropping an optional build suffix. */
+function imageTag(pod: V1Pod): string {
+  const image = pod.spec?.containers?.[0]?.image ?? '';
+  const tagStart = image.lastIndexOf(':');
+  const digestStart = image.lastIndexOf('@');
+  if (tagStart <= digestStart) return '';
+  return image.slice(tagStart + 1).split('-', 1)[0] ?? '';
+}
+
 /**
  * Normalizes a V1Pod into the unified shape, annotated with its origin target.
  * Pure and deterministic (given `now`), so it is trivially unit-testable.
@@ -75,6 +84,7 @@ export function normalizePod(pod: V1Pod, target: Target, now: number = Date.now(
     ready: readyString(pod),
     restarts: countRestarts(pod),
     node: pod.spec?.nodeName ?? '',
+    imageTag: imageTag(pod),
     ageSeconds: ageSeconds(pod, now),
     // Native sidecars are loggable containers too, so expose them for log selection.
     containers: [

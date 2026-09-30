@@ -3,7 +3,7 @@
 ## Audit date, scope, and executive summary
 
 **Date:** 2026-09-18
-**Environment:** Linux, Node v25.2.1, npm 11.6.2, workspace `/home/idd_galcantara/Documents/ops-flow`
+**Environment:** Linux, Node v25.2.1, npm 11.6.2, workspace `/home/idd_galcantara/Documents/ops-union`
 **Scope:** Read-only review of the current checkout at `main`, tagged `v1.3.2` (`0beac3e`), covering package/process topology, ownership, REST/WebSocket/IPC contracts, Kubernetes access, persistence, lifecycle, security, resource limits, tests, documentation, and operational gaps.
 
 The current architecture is a three-process desktop flow: Electron Main starts a local backend child, the backend is the only Kubernetes client, and the sandboxed React renderer uses REST/WebSocket plus a narrow preload bridge. The implementation has strong focused coverage for backend fan-out, safe errors, live/history logs, bounded history storage, stale history generations, and renderer state utilities. Backend and frontend tests passed, and all three package typechecks passed.

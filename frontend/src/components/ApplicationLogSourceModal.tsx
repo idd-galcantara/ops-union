@@ -104,6 +104,14 @@ export function ApplicationLogSourceModal({
 
   const visibleKeys = inventory ? sourceKeysForContexts(visibleContexts, inventory.application.key) : [];
   const applicationSelected = visibleKeys.length > 0 && visibleKeys.every((key) => selectedKeys.has(key));
+  const toggleVisibleSources = () => {
+    setSelectedKeys((current) => {
+      const next = new Set(current);
+      if (applicationSelected) visibleKeys.forEach((key) => next.delete(key));
+      else visibleKeys.forEach((key) => next.add(key));
+      return next;
+    });
+  };
   const updateSidecars = (scope: 'application' | InventoryContext, include: boolean) => {
     if (!inventory) return;
     setSelectedKeys((current) => applySidecarAction(inventory, current, scope === 'application' ? 'application' : scope, include));
@@ -174,6 +182,9 @@ export function ApplicationLogSourceModal({
             <span>Search sources</span>
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Context, pod, or container" />
           </label>
+          <button type="button" className="text-button source-selection-action" onClick={toggleVisibleSources} disabled={visibleKeys.length === 0}>
+            {applicationSelected ? 'Clear all' : search.trim() ? 'Select visible' : 'Select all'}
+          </button>
           <span className="source-modal-count" role="status" aria-live="polite">{selectedCount} selected</span>
         </div>
         {inventoryHasSources(inventory) && visibleContexts.length === 0 && (

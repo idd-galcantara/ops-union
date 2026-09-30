@@ -15,6 +15,7 @@ import {
   loadWorkspaceCatalog,
   persistWorkspaceCatalog,
   serializeWorkspace,
+  serializeWorkspaceBundle,
   validateWorkspaceName,
   type Workspace,
   type WorkspaceCatalog,
@@ -30,6 +31,10 @@ import {
   type Target,
   type TargetError,
 } from './types';
+
+export interface WorkspaceImportOptions {
+  overwrite?: boolean;
+}
 
 /** Auto-refresh intervals offered in the UI, in seconds. 0 means off. */
 export const REFRESH_INTERVALS = [0, 10, 30, 60] as const;
@@ -103,7 +108,9 @@ interface OpsFlowState {
   renameWorkspace: (id: string, name: string, description?: string) => string | undefined;
   switchWorkspace: (id: string) => string | undefined;
   deleteWorkspace: (id: string) => string | undefined;
-  importWorkspace: (result: WorkspaceImportResult, name: string, activate: boolean) => string | undefined;
+  deleteWorkspaces: (ids: string[]) => string | undefined;
+  importWorkspace: (result: WorkspaceImportResult, name: string, activate: boolean, options?: WorkspaceImportOptions) => string | undefined;
+  exportWorkspaces: (ids: string[], exportedAt?: string) => string;
   exportActiveWorkspace: (exportedAt?: string) => string;
   savePreset: (name: string, description?: string) => void;
   updatePreset: (id: string, name: string, description: string, targets: Target[]) => void;
@@ -489,12 +496,61 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
     return undefined;
   },
 
-  importWorkspace: (result, name, activate) => {
+  deleteWorkspaces: (ids) => {
+    const state = get();
+    const idsToDelete = new Set(ids);
+    const selected = state.workspaces.filter((workspace) => idsToDelete.has(workspace.id));
+    if (selected.length === 0) return 'No Workspaces selected.';
+    if (selected.length >= state.workspaces.length) return 'At least one Workspace must remain.';
+
+    const activeIndex = state.workspaces.findIndex((workspace) => workspace.id === state.activeWorkspaceId);
+    const workspaces = state.workspaces.filter((workspace) => !idsToDelete.has(workspace.id));
+    const activeDeleted = idsToDelete.has(state.activeWorkspaceId);
+    const nextActiveId = activeDeleted
+      ? (workspaces[Math.min(activeIndex, workspaces.length - 1)]?.id ?? workspaces[0].id)
+      : state.activeWorkspaceId;
+    const nextActive = workspaces.find((workspace) => workspace.id === nextActiveId) ?? workspaces[0];
+    persistWorkspaceCatalog({ version: 1, workspaces, activeWorkspaceId: nextActive.id });
+    set({
+      workspaces,
+      activeWorkspaceId: nextActive.id,
+      presets: activeDeleted ? nextActive.presets : state.presets,
+      ...(activeDeleted ? { activePresetId: null, activePresetDirty: false } : {}),
+    });
+    return undefined;
+  },
+
+  importWorkspace: (result, name, activate, options = {}) => {
     if (result.error || result.accepted.length === 0) return result.error ?? 'The import contains no valid presets.';
     const state = get();
-    const error = validateWorkspaceName(name, state.workspaces);
+    const trimmedName = name.trim();
+    const existing = state.workspaces.find((workspace) => workspace.name.toLocaleLowerCase() === trimmedName.toLocaleLowerCase());
+    const error = existing && !options.overwrite
+      ? validateWorkspaceName(trimmedName, state.workspaces)
+      : validateWorkspaceName(trimmedName, existing ? state.workspaces.filter((workspace) => workspace.id !== existing.id) : state.workspaces);
     if (error) return error;
-    const imported = createWorkspace(name, result.description ?? '', result.accepted.map((preset) => createPreset(preset.name, preset.targets, preset.description ?? '')));
+    const importedPresets = result.accepted.map((preset) => createPreset(preset.name, preset.targets, preset.description ?? ''));
+    if (existing && options.overwrite) {
+      const replaced = {
+        ...existing,
+        description: result.description?.trim() || undefined,
+        presets: importedPresets,
+        updatedAt: new Date().toISOString(),
+      };
+      const workspaces = state.workspaces.map((workspace) => workspace.id === existing.id ? replaced : workspace);
+      const showImported = activate || existing.id === state.activeWorkspaceId;
+      const activeWorkspaceId = activate ? existing.id : state.activeWorkspaceId;
+      persistWorkspaceCatalog({ version: 1, workspaces, activeWorkspaceId });
+      set({
+        workspaces,
+        activeWorkspaceId,
+        presets: showImported ? importedPresets : state.presets,
+        ...(showImported ? { activePresetId: null, activePresetDirty: false } : {}),
+      });
+      return undefined;
+    }
+
+    const imported = createWorkspace(trimmedName, result.description ?? '', importedPresets);
     const workspaces = [...state.workspaces, imported];
     const activeWorkspaceId = activate ? imported.id : state.activeWorkspaceId;
     const visible = activate ? imported.presets : state.presets;
@@ -512,6 +568,16 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
     const state = get();
     const workspace = state.workspaces.find((item) => item.id === state.activeWorkspaceId) ?? createDefaultWorkspace().workspaces[0];
     return serializeWorkspace({ ...workspace, presets: state.presets }, exportedAt);
+  },
+
+  exportWorkspaces: (ids, exportedAt) => {
+    const state = get();
+    const selected = state.workspaces
+      .filter((workspace) => ids.includes(workspace.id))
+      .map((workspace) => workspace.id === state.activeWorkspaceId
+        ? { ...workspace, presets: state.presets }
+        : workspace);
+    return serializeWorkspaceBundle(selected, exportedAt);
   },
 
   savePreset: (name, description = '') => {

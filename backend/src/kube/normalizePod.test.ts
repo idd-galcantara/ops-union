@@ -19,7 +19,7 @@ test('normalizePod maps ready, restarts and node', () => {
     metadata: { name: 'api-1' },
     spec: {
       nodeName: 'node-1',
-      containers: [{ name: 'app' }, { name: 'sidecar' }],
+      containers: [{ name: 'app', image: 'registry.example/apps/api:0.1.12-059f82c' }, { name: 'sidecar' }],
     },
     status: {
       phase: 'Running',
@@ -33,6 +33,7 @@ test('normalizePod maps ready, restarts and node', () => {
   assert.equal(result.ready, '1/2');
   assert.equal(result.restarts, 3);
   assert.equal(result.node, 'node-1');
+  assert.equal(result.imageTag, '0.1.12');
   assert.equal(result.status, 'Running');
   assert.deepEqual(result.containers, ['app', 'sidecar']);
 });
@@ -81,6 +82,7 @@ test('normalizePod is resilient to missing fields', () => {
   assert.equal(result.ready, '0/0');
   assert.equal(result.restarts, 0);
   assert.equal(result.node, '');
+  assert.equal(result.imageTag, '');
   assert.deepEqual(result.containers, []);
 });
 

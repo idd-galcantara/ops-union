@@ -7,6 +7,7 @@ import {
   Download,
   FileUp,
   Layers,
+  Loader,
   Pencil,
   Plus,
   RefreshCw,
@@ -25,7 +26,7 @@ import {
 } from '../presets';
 import { useOpsFlowStore } from '../store';
 import { targetKey, type NamespaceInfo } from '../types';
-import { parseWorkspaceImport, type Workspace, type WorkspaceImportResult } from '../workspaces';
+import { parseWorkspaceImportFile, validateWorkspaceName, type Workspace, type WorkspaceImportResult } from '../workspaces';
 import { ErrorState, LoadingState } from './Feedback';
 import { NamespaceInput } from './NamespaceInput';
 import { KubeconfigSetup } from './KubeconfigSetup';
@@ -101,6 +102,7 @@ export function TargetSelector({
     if (!needle) return contexts;
     return contexts.filter((c) => c.name.toLowerCase().includes(needle));
   }, [contextFilter, contexts]);
+  const allVisibleClustersSelected = visibleContexts.length > 0 && visibleContexts.every((context) => selectedClusters.includes(context.name));
 
   const toggleCluster = (name: string) => {
     setSelectedNamespaces([]);
@@ -108,6 +110,15 @@ export function TargetSelector({
     setSelectedClusters((current) =>
       current.includes(name) ? current.filter((c) => c !== name) : [...current, name],
     );
+  };
+
+  const toggleVisibleClusters = () => {
+    const visibleNames = visibleContexts.map((context) => context.name);
+    setSelectedNamespaces([]);
+    setNamespace('');
+    setSelectedClusters((current) => allVisibleClustersSelected
+      ? current.filter((cluster) => !visibleNames.includes(cluster))
+      : [...new Set([...current, ...visibleNames])]);
   };
 
   const namespacesReady =
@@ -236,6 +247,9 @@ export function TargetSelector({
           Contexts <b>{contexts.length}</b>
         </span>
         {selectedClusters.length > 0 && <span>{selectedClusters.length} sel.</span>}
+        <button type="button" className="text-button selection-action" onClick={toggleVisibleClusters} disabled={visibleContexts.length === 0 || contextsLoading}>
+          {allVisibleClustersSelected ? 'Clear all' : contextFilter.trim() ? 'Select visible' : 'Select all'}
+        </button>
       </div>
 
       {contextsError && (
@@ -491,6 +505,8 @@ function PresetSection({ openRequest, resetRequest }: { openRequest: number; res
   );
 }
 
+type BundleConflictStrategy = 'overwrite' | 'skip' | 'resolve';
+
 export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: () => void }) {
   const workspaces = useOpsFlowStore((state) => state.workspaces);
   const activeWorkspaceId = useOpsFlowStore((state) => state.activeWorkspaceId);
@@ -502,21 +518,64 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
   const createWorkspace = useOpsFlowStore((state) => state.createWorkspace);
   const renameWorkspace = useOpsFlowStore((state) => state.renameWorkspace);
   const deleteWorkspace = useOpsFlowStore((state) => state.deleteWorkspace);
+  const deleteWorkspaces = useOpsFlowStore((state) => state.deleteWorkspaces);
   const importWorkspace = useOpsFlowStore((state) => state.importWorkspace);
-  const exportActiveWorkspace = useOpsFlowStore((state) => state.exportActiveWorkspace);
+  const exportWorkspaces = useOpsFlowStore((state) => state.exportWorkspaces);
   const updatePreset = useOpsFlowStore((state) => state.updatePreset);
   const active = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0];
   const [open, setOpen] = useState(false);
   const [workspaceEditor, setWorkspaceEditor] = useState<{ mode: 'create' } | { mode: 'rename'; workspaceId: string } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [importPreview, setImportPreview] = useState<WorkspaceImportResult | null>(null);
+  const [importCandidates, setImportCandidates] = useState<WorkspaceImportResult[] | null>(null);
   const [importName, setImportName] = useState('');
   const [activateImport, setActivateImport] = useState(false);
   const [fileOperation, setFileOperation] = useState<'importing' | 'exporting' | null>(null);
+  const [workspaceQuery, setWorkspaceQuery] = useState('');
+  const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>([]);
+  const [selectedImportIndexes, setSelectedImportIndexes] = useState<number[]>([]);
+  const [importQuery, setImportQuery] = useState('');
+  const [activeImportIndex, setActiveImportIndex] = useState<number | null>(null);
+  const [importConflictIndexes, setImportConflictIndexes] = useState<number[] | null>(null);
+  const [conflictResolutionPosition, setConflictResolutionPosition] = useState<number | null>(null);
+  const [conflictResolutionNames, setConflictResolutionNames] = useState<Record<number, string>>({});
+  const [conflictResolutionSkipped, setConflictResolutionSkipped] = useState<Set<number>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const activePreset = presets.find((preset) => preset.id === activePresetId);
+  const managerBusy = Boolean(fileOperation);
   const canUpdateActivePreset = Boolean(activePreset && activePresetDirty && targets.length > 0);
+  const visibleWorkspaces = useMemo(() => {
+    const needle = workspaceQuery.trim().toLowerCase();
+    if (!needle) return workspaces;
+    return workspaces.filter((workspace) =>
+      [workspace.name, workspace.description ?? '', ...workspace.presets.map((preset) => preset.name)]
+        .join(' ')
+        .toLowerCase()
+        .includes(needle),
+    );
+  }, [workspaces, workspaceQuery]);
+  const selectedVisibleWorkspaceIds = visibleWorkspaces
+    .filter((workspace) => selectedWorkspaceIds.includes(workspace.id))
+    .map((workspace) => workspace.id);
+  const allVisibleWorkspacesSelected = visibleWorkspaces.length > 0 && selectedVisibleWorkspaceIds.length === visibleWorkspaces.length;
+  const importNameError = importPreview && !importPreview.error
+    ? validateWorkspaceName(importName, workspaces)
+    : undefined;
+  const visibleImportCandidates = importCandidates?.map((candidate, index) => ({ candidate, index })).filter(({ candidate }) => {
+    const needle = importQuery.trim().toLowerCase();
+    return !needle || [candidate.workspaceName ?? '', candidate.description ?? ''].join(' ').toLowerCase().includes(needle);
+  }) ?? [];
+  const selectedImportCandidates = (importCandidates ?? [])
+    .map((candidate, index) => ({ candidate, index }))
+    .filter(({ index }) => selectedImportIndexes.includes(index));
+  const importConflictFor = (candidate: WorkspaceImportResult) => {
+    const name = candidate.workspaceName?.trim().toLocaleLowerCase();
+    return name ? workspaces.find((workspace) => workspace.name.toLocaleLowerCase() === name) : undefined;
+  };
+  const selectedImportConflictIndexes = selectedImportCandidates
+    .filter(({ candidate }) => Boolean(importConflictFor(candidate)))
+    .map(({ index }) => index);
 
   const updateActivePreset = () => {
     if (!activePreset || !canUpdateActivePreset) return;
@@ -524,8 +583,53 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
   };
 
   const closeManager = () => {
+    if (managerBusy) return;
     setOpen(false);
     setWorkspaceEditor(null);
+    setImportPreview(null);
+    setImportCandidates(null);
+    setSelectedImportIndexes([]);
+    setImportQuery('');
+    setActiveImportIndex(null);
+    setImportConflictIndexes(null);
+    setConflictResolutionPosition(null);
+    setConflictResolutionNames({});
+    setConflictResolutionSkipped(new Set());
+    setWorkspaceQuery('');
+    setSelectedWorkspaceIds([]);
+  };
+
+  const clearWorkspaceSelection = () => {
+    setSelectedWorkspaceIds([]);
+  };
+
+  const openManager = () => {
+    setSelectedWorkspaceIds([]);
+    setOpen(true);
+  };
+
+  const closeImportBundle = () => {
+    setImportCandidates(null);
+    setSelectedImportIndexes([]);
+    setImportQuery('');
+    setActiveImportIndex(null);
+    setImportConflictIndexes(null);
+    setConflictResolutionPosition(null);
+    setConflictResolutionNames({});
+    setConflictResolutionSkipped(new Set());
+  };
+
+  const toggleWorkspaceSelection = (id: string) => {
+    setSelectedWorkspaceIds((current) => current.includes(id)
+      ? current.filter((item) => item !== id)
+      : [...current, id]);
+  };
+
+  const toggleVisibleWorkspaceSelection = () => {
+    setSelectedWorkspaceIds((current) => {
+      if (allVisibleWorkspacesSelected) return current.filter((id) => !selectedVisibleWorkspaceIds.includes(id));
+      return [...new Set([...current, ...visibleWorkspaces.map((workspace) => workspace.id)])];
+    });
   };
 
   useEffect(() => {
@@ -533,8 +637,21 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
     dialogRef.current?.focus();
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
+      if (managerBusy) return;
       if (importPreview) {
         setImportPreview(null);
+        return;
+      }
+      if (conflictResolutionPosition !== null) {
+        setConflictResolutionPosition(null);
+        return;
+      }
+      if (importConflictIndexes) {
+        setImportConflictIndexes(null);
+        return;
+      }
+      if (importCandidates) {
+        closeImportBundle();
         return;
       }
       if (workspaceEditor) return;
@@ -542,14 +659,16 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [importPreview, open, workspaceEditor]);
+  }, [closeImportBundle, conflictResolutionPosition, importCandidates, importConflictIndexes, importPreview, managerBusy, open, workspaceEditor]);
 
   const beginCreate = () => {
+    clearWorkspaceSelection();
     setWorkspaceEditor({ mode: 'create' });
     setStatus(null);
   };
 
   const beginRename = (workspace = active) => {
+    clearWorkspaceSelection();
     setWorkspaceEditor({ mode: 'rename', workspaceId: workspace.id });
     setStatus(null);
   };
@@ -559,40 +678,166 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
       ? createWorkspace(name, description)
       : workspaceId ? renameWorkspace(workspaceId, name, description) : 'Workspace not found.';
     if (!error) {
+      clearWorkspaceSelection();
       setStatus(mode === 'create' ? 'Workspace created and selected.' : 'Workspace renamed.');
     }
     return error;
   };
 
   const exportWorkspace = () => {
-    if (fileOperation) return;
+    if (fileOperation || selectedWorkspaceIds.length === 0) return;
     setFileOperation('exporting');
-    try {
-      const blob = new Blob([exportActiveWorkspace()], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `${active.name.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'workspace'}.json`;
-      link.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 0);
-      setStatus('Workspace export started.');
-    } catch {
-      setStatus('The Workspace could not be exported.');
-    } finally {
-      setFileOperation(null);
-    }
+    window.setTimeout(() => {
+      try {
+        const blob = new Blob([exportWorkspaces(selectedWorkspaceIds)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'ops-union-workspaces.json';
+        link.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 0);
+        setStatus(`${selectedWorkspaceIds.length} Workspace${selectedWorkspaceIds.length === 1 ? '' : 's'} export started.`);
+      } catch {
+        setStatus('The Workspace could not be exported.');
+      } finally {
+        clearWorkspaceSelection();
+        window.setTimeout(() => setFileOperation(null), 350);
+      }
+    }, 0);
   };
 
   const readImport = (file: File) => {
+    const startedAt = Date.now();
+    clearWorkspaceSelection();
     setFileOperation('importing');
     void file.text().then((raw) => {
-      const preview = parseWorkspaceImport(raw, workspaces);
-      setImportPreview(preview);
-      setImportName(preview.suggestedName ?? preview.workspaceName ?? '');
-      setActivateImport(false);
+      const parsed = parseWorkspaceImportFile(raw);
+      if (parsed.error) {
+        setImportCandidates(null);
+        setImportPreview({ accepted: [], invalid: [], error: parsed.error });
+      } else if (parsed.workspaces.length === 1) {
+        openImportPreview(parsed.workspaces[0]);
+      } else {
+        setImportPreview(null);
+        setImportCandidates(parsed.workspaces);
+        const validIndexes = parsed.workspaces
+          .map((candidate, index) => candidate.error || candidate.accepted.length === 0 ? null : index)
+          .filter((index): index is number => index !== null);
+        setSelectedImportIndexes(validIndexes);
+        setActiveImportIndex(validIndexes[0] ?? null);
+        setImportQuery('');
+      }
     }).catch(() => {
       setStatus('The selected Workspace could not be read.');
-    }).finally(() => setFileOperation(null));
+    }).finally(() => {
+      window.setTimeout(() => setFileOperation(null), Math.max(0, 350 - (Date.now() - startedAt)));
+    });
+  };
+
+  const toggleImportSelection = (index: number) => {
+    if (selectedImportIndexes.includes(index)) {
+      if (activeImportIndex === index) setActiveImportIndex(null);
+      setSelectedImportIndexes((current) => current.filter((item) => item !== index));
+      return;
+    }
+    setSelectedImportIndexes((current) => [...current, index]);
+  };
+
+  const toggleImportActive = (index: number) => {
+    setSelectedImportIndexes((current) => current.includes(index) ? current : [...current, index]);
+    setActiveImportIndex((current) => current === index ? null : index);
+  };
+
+  const selectVisibleImports = () => {
+    const visibleIndexes = visibleImportCandidates
+      .filter(({ candidate }) => !candidate.error && candidate.accepted.length > 0)
+      .map(({ index }) => index);
+    setSelectedImportIndexes((current) => {
+      const allSelected = visibleIndexes.every((index) => current.includes(index));
+      return allSelected
+        ? current.filter((index) => !visibleIndexes.includes(index))
+        : [...new Set([...current, ...visibleIndexes])];
+    });
+  };
+
+  const commitBundleImports = (strategy: BundleConflictStrategy, resolvedNames: Record<number, string | null> = {}) => {
+    const candidates = importCandidates ?? [];
+    const selected = candidates
+      .map((candidate, index) => ({ candidate, index }))
+      .filter(({ index }) => selectedImportIndexes.includes(index));
+    let importedCount = 0;
+    for (const { candidate, index } of selected) {
+      const conflict = selectedImportConflictIndexes.includes(index);
+      if (strategy === 'skip' && conflict) continue;
+      if (strategy === 'resolve' && Object.prototype.hasOwnProperty.call(resolvedNames, index) && resolvedNames[index] === null) continue;
+      const name = Object.prototype.hasOwnProperty.call(resolvedNames, index)
+        ? resolvedNames[index] ?? ''
+        : candidate.suggestedName ?? candidate.workspaceName ?? '';
+      if (!name) continue;
+      const error = importWorkspace(candidate, name, activeImportIndex === index, { overwrite: strategy === 'overwrite' });
+      if (!error) importedCount += 1;
+    }
+    setImportConflictIndexes(null);
+    setConflictResolutionPosition(null);
+    setConflictResolutionNames({});
+    setConflictResolutionSkipped(new Set());
+    setImportCandidates(null);
+    setSelectedImportIndexes([]);
+    setImportQuery('');
+    setActiveImportIndex(null);
+    setStatus(`${importedCount} Workspace${importedCount === 1 ? '' : 's'} imported${strategy === 'skip' ? ', existing names skipped' : ''}.`);
+    const activeWasImported = activeImportIndex !== null && selectedImportIndexes.includes(activeImportIndex) && !(
+      strategy === 'skip' && selectedImportConflictIndexes.includes(activeImportIndex)
+      || strategy === 'resolve' && Object.prototype.hasOwnProperty.call(resolvedNames, activeImportIndex) && resolvedNames[activeImportIndex] === null
+    );
+    if (activeWasImported) {
+      onWorkspaceChange();
+      closeManager();
+    }
+  };
+
+  const beginBundleImport = () => {
+    if (selectedImportIndexes.length === 0) return;
+    if (selectedImportConflictIndexes.length > 0) {
+      setImportConflictIndexes(selectedImportConflictIndexes);
+      return;
+    }
+    commitBundleImports('resolve');
+  };
+
+  const currentConflictIndex = importConflictIndexes && conflictResolutionPosition !== null
+    ? importConflictIndexes[conflictResolutionPosition]
+    : null;
+  const currentConflictCandidate = currentConflictIndex !== null ? importCandidates?.[currentConflictIndex] : undefined;
+  const currentConflictName = currentConflictIndex !== null
+    ? conflictResolutionNames[currentConflictIndex] ?? currentConflictCandidate?.workspaceName ?? ''
+    : '';
+  const currentConflictNameError = currentConflictIndex !== null && currentConflictName.trim()
+    ? validateWorkspaceName(currentConflictName, workspaces)
+    : 'Workspace name is required.';
+
+  const resolveCurrentConflict = (skip: boolean) => {
+    if (currentConflictIndex === null || !importConflictIndexes || conflictResolutionPosition === null) return;
+    if (!skip && currentConflictNameError) return;
+    const nextSkipped = new Set(conflictResolutionSkipped);
+    if (skip) nextSkipped.add(currentConflictIndex);
+    else nextSkipped.delete(currentConflictIndex);
+    const nextNames = { ...conflictResolutionNames, [currentConflictIndex]: currentConflictName.trim() };
+    const nextPosition = conflictResolutionPosition + 1;
+    setConflictResolutionSkipped(nextSkipped);
+    setConflictResolutionNames(nextNames);
+    if (nextPosition < importConflictIndexes.length) {
+      setConflictResolutionPosition(nextPosition);
+      return;
+    }
+    const resolvedNames = Object.fromEntries(importConflictIndexes.map((index) => [index, nextSkipped.has(index) ? null : nextNames[index]]));
+    commitBundleImports('resolve', resolvedNames);
+  };
+
+  const openImportPreview = (preview: WorkspaceImportResult) => {
+    setImportPreview(preview);
+    setImportName(preview.suggestedName ?? preview.workspaceName ?? '');
+    setActivateImport(false);
   };
 
   const confirmDelete = (workspaceId: string) => {
@@ -604,18 +849,52 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
     }
     if (!window.confirm(`Delete Workspace "${target.name}" and its ${target.presets.length} preset(s)?`)) return;
     const error = deleteWorkspace(workspaceId);
+    clearWorkspaceSelection();
     setStatus(error ?? 'Workspace deleted.');
+  };
+
+  const confirmDeleteSelected = () => {
+    if (selectedWorkspaceIds.length === 0) return;
+    if (selectedWorkspaceIds.length >= workspaces.length) {
+      setStatus('At least one Workspace must remain. Use Delete all except active to clear the other Workspaces.');
+      return;
+    }
+    if (!window.confirm(`Delete ${selectedWorkspaceIds.length} selected Workspace${selectedWorkspaceIds.length === 1 ? '' : 's'}?`)) return;
+    const error = deleteWorkspaces(selectedWorkspaceIds);
+    clearWorkspaceSelection();
+    setStatus(error ?? 'Selected Workspaces deleted.');
+  };
+
+  const confirmDeleteAllExceptActive = () => {
+    const ids = workspaces.filter((workspace) => workspace.id !== activeWorkspaceId).map((workspace) => workspace.id);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Delete all ${ids.length} Workspace${ids.length === 1 ? '' : 's'} except the active Workspace?`)) return;
+    const error = deleteWorkspaces(ids);
+    clearWorkspaceSelection();
+    setStatus(error ?? 'All other Workspaces deleted.');
   };
 
   const submitImport = () => {
     if (!importPreview) return;
-    const error = importWorkspace(importPreview, importName, activateImport);
+    if (importNameError) return;
+    const shouldActivate = activateImport;
+    const error = importWorkspace(importPreview, importName, shouldActivate);
     if (error) {
       setStatus(error);
       return;
     }
+    setSelectedWorkspaceIds([]);
     setImportPreview(null);
-    setStatus(activateImport ? 'Workspace imported and selected.' : 'Workspace imported.');
+    setImportCandidates((current) => {
+      if (!current) return null;
+      const remaining = current.filter((candidate) => candidate !== importPreview);
+      return remaining.length > 0 ? remaining : null;
+    });
+    setStatus(shouldActivate ? 'Workspace imported and selected.' : 'Workspace imported.');
+    if (shouldActivate) {
+      onWorkspaceChange();
+      closeManager();
+    }
   };
 
   if (!active) return null;
@@ -629,7 +908,7 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
         <button
           type="button"
           className="workspace-context-trigger"
-          onClick={() => setOpen(true)}
+          onClick={openManager}
           aria-expanded={open}
           aria-controls="workspace-manager"
           aria-label={`Workspace ${active.name}; ${activePreset?.name ?? 'Live search'}`}
@@ -658,22 +937,54 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
       {status && <p className="workspace-status" role="status" aria-live="polite">{status}</p>}
       {open && (
         <div className="workspace-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && closeManager()}>
-          <section className="workspace-modal" ref={dialogRef} id="workspace-manager" role="dialog" aria-modal="true" aria-labelledby="workspace-manager-title" tabIndex={-1}>
+          <section className="workspace-modal" ref={dialogRef} id="workspace-manager" role="dialog" aria-modal="true" aria-labelledby="workspace-manager-title" aria-busy={managerBusy} tabIndex={-1}>
           <div className="workspace-manager-header">
             <div>
-              <span className="eyebrow">Preset collection</span>
+              <span className="eyebrow">Workspace library</span>
               <h2 id="workspace-manager-title">Workspaces</h2>
             </div>
-            <button type="button" className="icon-button subtle" onClick={closeManager} aria-label="Close Workspace manager">
+            <button type="button" className="icon-button subtle" onClick={closeManager} aria-label="Close Workspace manager" disabled={managerBusy}>
               <X size={15} />
             </button>
           </div>
+          <div className="workspace-manager-toolbar">
+            {workspaces.length > 0 ? (
+              <label className="preset-search workspace-search">
+                <Search size={13} />
+                <span className="visually-hidden">Search Workspaces</span>
+                <input
+                  autoFocus
+                  value={workspaceQuery}
+                  onChange={(event) => setWorkspaceQuery(event.target.value)}
+                  disabled={managerBusy}
+                  placeholder="Search Workspaces..."
+                />
+                {workspaceQuery && (
+                  <button type="button" className="preset-search-clear" onClick={() => setWorkspaceQuery('')} aria-label="Clear Workspace search">
+                    <X size={12} />
+                  </button>
+                )}
+              </label>
+            ) : <span />}
+            <button type="button" className="text-button" onClick={toggleVisibleWorkspaceSelection} disabled={visibleWorkspaces.length === 0 || managerBusy}>
+              {allVisibleWorkspacesSelected ? (workspaceQuery.trim() ? 'Clear visible' : 'Clear all') : (workspaceQuery.trim() ? 'Select visible' : 'Select all')}
+            </button>
+          </div>
           <div className="workspace-list">
-            {workspaces.map((workspace) => (
+            {visibleWorkspaces.map((workspace) => (
               <div className={`workspace-list-item ${workspace.id === activeWorkspaceId ? 'is-active' : ''}`} key={workspace.id}>
+                <input
+                  className="workspace-select-checkbox"
+                  type="checkbox"
+                  checked={selectedWorkspaceIds.includes(workspace.id)}
+                  onChange={() => toggleWorkspaceSelection(workspace.id)}
+                  disabled={managerBusy}
+                  aria-label={`Select Workspace ${workspace.name} for export`}
+                />
                 <button
                   type="button"
                   className="workspace-list-select"
+                  disabled={managerBusy}
                   onClick={() => {
                     const error = switchWorkspace(workspace.id);
                     if (error) {
@@ -682,7 +993,7 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
                     }
                     setStatus(null);
                     if (workspace.id !== activeWorkspaceId) onWorkspaceChange();
-                    setOpen(false);
+                    closeManager();
                   }}
                   aria-pressed={workspace.id === activeWorkspaceId}
                 >
@@ -690,28 +1001,29 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
                   <small>{workspace.presets.length} preset{workspace.presets.length === 1 ? '' : 's'}{workspace.description ? ` · ${workspace.description}` : ''}</small>
                 </button>
                 {workspace.id === activeWorkspaceId && <span className="workspace-active-label">Active</span>}
-                <button type="button" className="icon-button subtle" onClick={() => beginRename(workspace)} aria-label={`Rename Workspace ${workspace.name}`} title="Rename Workspace">
+                <button type="button" className="icon-button subtle" onClick={() => beginRename(workspace)} aria-label={`Rename Workspace ${workspace.name}`} title="Rename Workspace" disabled={managerBusy}>
                   <Pencil size={13} />
                 </button>
-                <button type="button" className="icon-button subtle danger" onClick={() => confirmDelete(workspace.id)} aria-label={`Delete Workspace ${workspace.name}`} title="Delete Workspace" disabled={workspaces.length <= 1}>
+                <button type="button" className="icon-button subtle danger" onClick={() => confirmDelete(workspace.id)} aria-label={`Delete Workspace ${workspace.name}`} title="Delete Workspace" disabled={workspaces.length <= 1 || managerBusy}>
                   <Trash2 size={13} />
                 </button>
               </div>
             ))}
+            {workspaces.length > 0 && visibleWorkspaces.length === 0 && <p className="sidebar-hint">No Workspace matches the search.</p>}
           </div>
           <div className="workspace-manager-actions">
-            <button type="button" className="secondary-button" onClick={beginCreate} disabled={Boolean(fileOperation)}><Plus size={13} /> Create</button>
-            <button type="button" className="secondary-button" onClick={exportWorkspace} disabled={Boolean(fileOperation)}><Download size={13} /> Export</button>
+            <button type="button" className="secondary-button" onClick={beginCreate} disabled={managerBusy}><Plus size={13} /> Create</button>
+            <button type="button" className="secondary-button" onClick={exportWorkspace} disabled={managerBusy || selectedWorkspaceIds.length === 0} aria-busy={fileOperation === 'exporting'}>{fileOperation === 'exporting' ? <Loader size={13} className="spinning" /> : <Download size={13} />} {fileOperation === 'exporting' ? 'Exporting...' : 'Export selected'}{fileOperation !== 'exporting' && selectedWorkspaceIds.length > 0 ? ` (${selectedWorkspaceIds.length})` : ''}</button>
             <button
               type="button"
               className="secondary-button"
               onClick={() => {
                 if (fileOperation) return;
-                setFileOperation('importing');
-                window.setTimeout(() => fileInputRef.current?.click(), 0);
+                fileInputRef.current?.click();
               }}
-              disabled={Boolean(fileOperation)}
-            ><FileUp size={13} /> Import</button>
+              disabled={managerBusy}
+              aria-busy={fileOperation === 'importing'}
+            >{fileOperation === 'importing' ? <Loader size={13} className="spinning" /> : <FileUp size={13} />} {fileOperation === 'importing' ? 'Importing...' : 'Import'}</button>
             <input
               ref={fileInputRef}
               className="visually-hidden"
@@ -726,7 +1038,111 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
               aria-label="Choose Workspace JSON file"
             />
           </div>
-          {fileOperation && <p className="workspace-status" role="status" aria-live="polite">{fileOperation === 'importing' ? 'Reading Workspace...' : 'Preparing Workspace download...'}</p>}
+          <div className="workspace-manager-danger-actions" aria-label="Workspace deletion actions">
+            {selectedWorkspaceIds.length > 0 && <button type="button" className="workspace-danger-action" onClick={confirmDeleteSelected} disabled={managerBusy} title="Delete selected Workspaces" aria-label="Delete selected Workspaces"><Trash2 size={12} /> <span>Remove selected</span></button>}
+            {workspaces.length > 1 && <button type="button" className="workspace-danger-action" onClick={confirmDeleteAllExceptActive} disabled={managerBusy} title="Delete all Workspaces except the active Workspace" aria-label="Delete all Workspaces except the active Workspace"><Trash2 size={12} /> <span>Keep active only</span></button>}
+          </div>
+          {selectedWorkspaceIds.length > 0 && <p className="workspace-selection-status" role="status">{selectedWorkspaceIds.length} Workspace{selectedWorkspaceIds.length === 1 ? '' : 's'} selected for export.</p>}
+          {fileOperation && <p className="workspace-status" role="status" aria-live="polite"><Loader size={13} className="spinning" /> {fileOperation === 'importing' ? 'Reading Workspace...' : 'Preparing Workspace download...'}</p>}
+          </section>
+        </div>
+      )}
+      {importCandidates && !importPreview && (
+        <div className="preset-dialog-layer" onMouseDown={(event) => !managerBusy && event.target === event.currentTarget && closeImportBundle()}>
+          <section className="preset-library workspace-import-candidates" role="dialog" aria-modal="true" aria-labelledby="workspace-import-candidates-title" aria-busy={managerBusy}>
+            <div className="preset-library-header">
+              <div>
+                <span className="eyebrow">Workspace bundle</span>
+                <h2 id="workspace-import-candidates-title">Choose Workspaces</h2>
+              </div>
+              <button type="button" className="icon-button subtle" onClick={closeImportBundle} aria-label="Close Workspace bundle" disabled={managerBusy}><X size={15} /></button>
+            </div>
+            <p className="preset-dialog-summary">Select the Workspaces to import. You can mark at most one as active after import.</p>
+            <div className="workspace-bundle-toolbar">
+              <label className="preset-search workspace-search">
+                <Search size={13} />
+                <span className="visually-hidden">Search bundle Workspaces</span>
+                <input value={importQuery} onChange={(event) => setImportQuery(event.target.value)} placeholder="Search by Workspace name..." autoFocus disabled={managerBusy} />
+                {importQuery && <button type="button" className="preset-search-clear" onClick={() => setImportQuery('')} aria-label="Clear bundle search" disabled={managerBusy}><X size={12} /></button>}
+              </label>
+              <button type="button" className="text-button" onClick={selectVisibleImports} disabled={visibleImportCandidates.length === 0 || managerBusy}>
+                {visibleImportCandidates.every(({ index }) => selectedImportIndexes.includes(index)) ? (importQuery.trim() ? 'Clear visible' : 'Clear all') : (importQuery.trim() ? 'Select visible' : 'Select all')}
+              </button>
+            </div>
+            <div className="preset-library-list" role="group" aria-label="Workspaces available to import">
+              {visibleImportCandidates.map(({ candidate, index }) => {
+                const conflict = importConflictFor(candidate);
+                const selectable = !candidate.error && candidate.accepted.length > 0;
+                return (
+                <div className={`preset-library-item workspace-bundle-item ${conflict ? 'has-conflict' : ''}`} key={`${candidate.workspaceName ?? 'workspace'}-${index}`}>
+                  <input
+                    className="workspace-bundle-checkbox"
+                    type="checkbox"
+                    checked={selectedImportIndexes.includes(index)}
+                    onChange={() => toggleImportSelection(index)}
+                    disabled={!selectable || managerBusy}
+                    aria-label={`Select Workspace ${candidate.workspaceName ?? 'unnamed'}`}
+                  />
+                  <div className="workspace-bundle-copy">
+                    <Layers size={14} />
+                    <span className="preset-text">
+                      <strong>{candidate.workspaceName ?? 'Unnamed Workspace'}</strong>
+                      <small>{candidate.accepted.length} preset(s) ready{candidate.invalid.length > 0 ? ` · ${candidate.invalid.length} invalid` : ''}</small>
+                      {conflict && <em className="workspace-bundle-conflict">Name already exists</em>}
+                      {candidate.error && <em>{candidate.error}</em>}
+                    </span>
+                  </div>
+                  <label className="workspace-bundle-active" title="Make this Workspace active after import">
+                    <input type="checkbox" checked={activeImportIndex === index} onChange={() => toggleImportActive(index)} disabled={!selectable || managerBusy} />
+                    <span>Active</span>
+                  </label>
+                </div>
+                );
+              })}
+              {visibleImportCandidates.length === 0 && <p className="sidebar-hint">No Workspace matches the search.</p>}
+            </div>
+            <div className="preset-editor-actions">
+              <button type="button" className="secondary-button" onClick={closeImportBundle} disabled={managerBusy}>Cancel</button>
+              <button type="button" className="primary-button" onClick={beginBundleImport} disabled={managerBusy || selectedImportIndexes.length === 0}><Layers size={13} /> Import selected ({selectedImportIndexes.length})</button>
+            </div>
+          </section>
+        </div>
+      )}
+      {importConflictIndexes && conflictResolutionPosition === null && (
+        <div className="preset-dialog-layer" role="presentation">
+          <section className="preset-secondary-dialog workspace-conflict-dialog" role="dialog" aria-modal="true" aria-labelledby="workspace-conflict-title">
+            <div className="preset-secondary-dialog-header">
+              <div>
+                <span className="eyebrow">Import conflicts</span>
+                <h3 id="workspace-conflict-title">Some names already exist</h3>
+              </div>
+              <button type="button" className="icon-button subtle" onClick={() => setImportConflictIndexes(null)} aria-label="Close import conflict options"><X size={15} /></button>
+            </div>
+            <p className="preset-dialog-summary">{importConflictIndexes.length} selected Workspace{importConflictIndexes.length === 1 ? '' : 's'} have the same name as an existing Workspace. Choose how to continue.</p>
+            <div className="workspace-conflict-actions">
+              <button type="button" className="primary-button" onClick={() => commitBundleImports('overwrite')}><Check size={13} /> Overwrite existing</button>
+              <button type="button" className="secondary-button" onClick={() => commitBundleImports('skip')}><X size={13} /> Skip existing</button>
+              <button type="button" className="secondary-button" onClick={() => { setConflictResolutionNames({}); setConflictResolutionSkipped(new Set()); setConflictResolutionPosition(0); }}><Pencil size={13} /> Resolve one by one</button>
+            </div>
+          </section>
+        </div>
+      )}
+      {importConflictIndexes && conflictResolutionPosition !== null && currentConflictCandidate && (
+        <div className="preset-dialog-layer" role="presentation">
+          <section className="preset-editor workspace-conflict-dialog" role="dialog" aria-modal="true" aria-labelledby="workspace-resolve-conflict-title">
+            <div className="preset-editor-header">
+              <div><span className="eyebrow">Resolve conflict {conflictResolutionPosition + 1} of {importConflictIndexes.length}</span><h2 id="workspace-resolve-conflict-title">Choose a new name</h2></div>
+              <button type="button" className="icon-button subtle" onClick={() => setConflictResolutionPosition(null)} aria-label="Close conflict resolver"><X size={15} /></button>
+            </div>
+            <p className="preset-dialog-summary">“{currentConflictCandidate.workspaceName}” already exists. Enter a different name for this imported Workspace, or skip it.</p>
+            <div className="preset-editor-fields">
+              <label><span>Resulting workspace name</span><input value={currentConflictName} onChange={(event) => setConflictResolutionNames((current) => ({ ...current, [currentConflictIndex ?? -1]: event.target.value }))} autoFocus aria-invalid={Boolean(currentConflictNameError)} /></label>
+            </div>
+            {currentConflictNameError && <p className="workspace-import-error" role="alert">{currentConflictNameError}</p>}
+            <div className="preset-editor-actions">
+              <button type="button" className="secondary-button" onClick={() => resolveCurrentConflict(true)}>Skip this</button>
+              <button type="button" className="primary-button" onClick={() => resolveCurrentConflict(false)} disabled={Boolean(currentConflictNameError)}><Check size={13} /> Continue</button>
+            </div>
           </section>
         </div>
       )}
@@ -743,23 +1159,26 @@ export function WorkspaceControls({ onWorkspaceChange }: { onWorkspaceChange: ()
         />
       )}
       {importPreview && (
-        <div className="preset-dialog-layer" onMouseDown={(event) => event.target === event.currentTarget && setImportPreview(null)}>
-          <section className="preset-secondary-dialog" role="dialog" aria-modal="true" aria-labelledby="workspace-import-title">
-            <div className="preset-secondary-dialog-header">
-              <div><span className="eyebrow">Review file</span><h3 id="workspace-import-title">Import Workspace</h3></div>
-              <button type="button" className="icon-button subtle" onClick={() => setImportPreview(null)} aria-label="Close Workspace import preview"><X size={15} /></button>
+        <div className="preset-editor-backdrop" onMouseDown={(event) => !managerBusy && event.target === event.currentTarget && setImportPreview(null)}>
+          <section className="preset-editor workspace-import-dialog" role="dialog" aria-modal="true" aria-labelledby="workspace-import-title" aria-busy={managerBusy}>
+            <div className="preset-editor-header">
+              <div><span className="eyebrow">Review file</span><h2 id="workspace-import-title">Import workspace</h2></div>
+              <button type="button" className="icon-button subtle" onClick={() => setImportPreview(null)} aria-label="Close Workspace import preview" disabled={managerBusy}><X size={15} /></button>
             </div>
             {importPreview.error ? <div className="preset-library-feedback is-error" role="alert">{importPreview.error}</div> : (
               <>
                 <p className="preset-dialog-summary">{importPreview.accepted.length} preset(s) ready, {importPreview.invalid.length} invalid. A new Workspace will be created.</p>
-                <label className="workspace-form"><span>Resulting Workspace name</span><input value={importName} onChange={(event) => setImportName(event.target.value)} /></label>
-                <label className="workspace-import-activate"><input type="checkbox" checked={activateImport} onChange={(event) => setActivateImport(event.target.checked)} /> Select imported Workspace after confirmation</label>
+                <div className="preset-editor-fields">
+                  <label><span>Resulting workspace name</span><input id="workspace-import-name" value={importName} onChange={(event) => setImportName(event.target.value)} autoFocus disabled={managerBusy} aria-invalid={Boolean(importNameError)} aria-describedby={importNameError ? 'workspace-import-name-error' : undefined} /></label>
+                </div>
+                {importNameError && <p className="workspace-import-error" id="workspace-import-name-error" role="alert">{importNameError}</p>}
+                <label className="workspace-import-activate"><input type="checkbox" checked={activateImport} onChange={(event) => setActivateImport(event.target.checked)} disabled={managerBusy} /> Select imported Workspace after confirmation</label>
                 {importPreview.invalid.map((entry) => <p className="workspace-import-error" key={entry.index}>Entry {entry.index + 1}: {entry.reason}</p>)}
               </>
             )}
-            <div className="preset-secondary-dialog-actions">
-              <button type="button" className="secondary-button" onClick={() => setImportPreview(null)}>Cancel</button>
-              <button type="button" className="primary-button" onClick={submitImport} disabled={Boolean(importPreview.error) || importPreview.accepted.length === 0 || !importName.trim()}>Create Workspace</button>
+            <div className="preset-editor-actions">
+              <button type="button" className="secondary-button" onClick={() => setImportPreview(null)} disabled={managerBusy}>Cancel</button>
+              <button type="button" className="primary-button" onClick={submitImport} disabled={managerBusy || Boolean(importPreview.error) || Boolean(importNameError) || importPreview.accepted.length === 0 || !importName.trim()}><Save size={13} /> Import workspace</button>
             </div>
           </section>
         </div>

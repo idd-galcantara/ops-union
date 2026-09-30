@@ -2,7 +2,7 @@
 
 ## Scope
 
-This specification records the completed transition from the `ops-flow` identity
+This specification records the completed transition from the `ops-union` identity
 to the `Ops Union` product identity and promotes the application to its first
 stable major release, `1.0.0`. The release includes the pending source,
 documentation, automation, packaging, and specification updates in the working

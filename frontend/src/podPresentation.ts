@@ -71,6 +71,7 @@ export function matchesFilter(pod: NormalizedPod, filter: string): boolean {
     pod.namespace,
     pod.status,
     pod.node,
+    pod.imageTag,
     pod.application.key,
     pod.application.name,
     ...pod.containers,

@@ -58,7 +58,7 @@ interface LogViewerProps {
 export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSources, onClose }: LogViewerProps) {
   const fallbackPods = useMemo(() => [pod], [pod]);
   const logPods = pods ?? fallbackPods;
-  const availableSources = useMemo(() => sources ?? sourcesForPods(logPods.map((item): NormalizedPod => ({ cluster: item.cluster, namespace: item.namespace, name: item.name, status: '', ready: '', restarts: 0, node: '', ageSeconds: 0, containers: item.containers, application: item.application ?? { key: `pod:${item.name}`, name: item.name, source: 'pod' } }))), [logPods, sources]);
+  const availableSources = useMemo(() => sources ?? sourcesForPods(logPods.map((item): NormalizedPod => ({ cluster: item.cluster, namespace: item.namespace, name: item.name, status: '', ready: '', restarts: 0, node: '', imageTag: '', ageSeconds: 0, containers: item.containers, application: item.application ?? { key: `pod:${item.name}`, name: item.name, source: 'pod' } }))), [logPods, sources]);
   const [search, setSearch] = useState<LogSearchState>(() => ({ draft: cloneLogSearchValues(DEFAULT_LOG_SEARCH_VALUES), applied: cloneLogSearchValues(DEFAULT_LOG_SEARCH_VALUES) }));
   const [display, setDisplay] = useState(DEFAULT_LOG_DISPLAY_STATE);
   const [events, setEvents] = useState<LogEventRecord[]>([]);
