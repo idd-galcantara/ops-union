@@ -29,12 +29,16 @@ podsRouter.post('/', async (req: Request, res: Response) => {
 });
 
 /** Validates the shared :cluster/:namespace/:pod path params. */
+type PodParamValue = string | string[] | undefined;
+
 function parsePodParams(
-  params: Record<string, string | undefined>,
+  params: Record<string, PodParamValue>,
 ): { cluster: string; namespace: string; pod: string } | { error: string } {
-  const cluster = params.cluster?.trim();
-  const namespace = params.namespace?.trim();
-  const pod = params.pod?.trim();
+  const readParam = (value: PodParamValue): string | undefined =>
+    typeof value === 'string' ? value.trim() : undefined;
+  const cluster = readParam(params.cluster);
+  const namespace = readParam(params.namespace);
+  const pod = readParam(params.pod);
   if (!cluster || !namespace || !pod) {
     return { error: 'Provide cluster, namespace and pod.' };
   }
