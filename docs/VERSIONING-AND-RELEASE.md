@@ -28,6 +28,8 @@ e roda typecheck, testes e build. Os jobs Linux, Windows e macOS so iniciam depo
 Pull requests que alteram manifests ou o lockfile tambem passam por Dependency Review; Dependabot
 acompanha npm e GitHub Actions. Toda pull request tambem executa a validacao completa de runtime,
 dependencias, auditoria, typecheck, testes e build; essa workflow nao empacota nem publica artefatos.
+PRs do Dependabot recebem auto-merge nativo somente depois que ambos os checks passam no mesmo
+commit; PRs com falha, check ausente ou pendente permanecem abertos.
 
 ## Versionamento semantico
 
