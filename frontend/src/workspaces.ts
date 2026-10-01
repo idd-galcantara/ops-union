@@ -64,6 +64,13 @@ export const WORKSPACE_EXPORT_FORMAT = 'ops-union.workspace';
 export const WORKSPACE_BUNDLE_EXPORT_FORMAT = 'ops-union.workspace-bundle';
 export const WORKSPACE_EXPORT_VERSION = 1;
 export const MAX_WORKSPACE_NAME_LENGTH = 100;
+export const MAX_WORKSPACE_IMPORT_BYTES = 2 * 1024 * 1024;
+export const MAX_IMPORTED_WORKSPACES = 100;
+export const MAX_IMPORTED_PRESETS = 100;
+export const MAX_IMPORTED_TARGETS = 256;
+export const MAX_IMPORTED_FIELD_LENGTH = 128;
+export const MAX_IMPORTED_DESCRIPTION_LENGTH = 512;
+export const MAX_IMPORTED_NESTING_DEPTH = 8;
 export const DEFAULT_WORKSPACE_NAME = 'My Workspace';
 
 function createLocalId(prefix: string): string {
@@ -162,6 +169,9 @@ export function parseWorkspaceImport(raw: string): WorkspaceImportResult {
 }
 
 export function parseWorkspaceImportFile(raw: string): WorkspaceImportFileResult {
+  if (new TextEncoder().encode(raw).byteLength > MAX_WORKSPACE_IMPORT_BYTES) {
+    return { workspaces: [], error: 'The Workspace file is larger than the 2 MiB import limit.' };
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw) as unknown;
@@ -171,6 +181,9 @@ export function parseWorkspaceImportFile(raw: string): WorkspaceImportFileResult
 
   if (!isRecord(parsed)) {
     return { workspaces: [], error: `Unsupported Workspace document. Expected format "${WORKSPACE_EXPORT_FORMAT}".` };
+  }
+  if (objectDepth(parsed) > MAX_IMPORTED_NESTING_DEPTH) {
+    return { workspaces: [], error: 'The Workspace document is nested beyond the supported limit.' };
   }
 
   if (parsed.format === WORKSPACE_EXPORT_FORMAT) {
@@ -185,6 +198,7 @@ export function parseWorkspaceImportFile(raw: string): WorkspaceImportFileResult
     if (!Array.isArray(parsed.workspaces) || parsed.workspaces.length === 0) {
       return { workspaces: [], error: 'The Workspace bundle does not contain any workspaces.' };
     }
+    if (parsed.workspaces.length > MAX_IMPORTED_WORKSPACES) return { workspaces: [], error: `A Workspace bundle may contain at most ${MAX_IMPORTED_WORKSPACES} Workspaces.` };
     return {
       workspaces: parsed.workspaces.map((workspace) => parseWorkspacePayload({
         workspace,
@@ -213,9 +227,12 @@ function parseWorkspacePayload(value: Record<string, unknown>): WorkspaceImportR
   if (value.workspace.description !== undefined && typeof value.workspace.description !== 'string') {
     return emptyWorkspaceImport('Workspace description must be a string when provided.');
   }
+  if (value.workspace.name.length > MAX_IMPORTED_FIELD_LENGTH) return emptyWorkspaceImport(`Workspace names must be ${MAX_IMPORTED_FIELD_LENGTH} characters or fewer.`);
+  if (typeof value.workspace.description === 'string' && value.workspace.description.length > MAX_IMPORTED_DESCRIPTION_LENGTH) return emptyWorkspaceImport(`Workspace descriptions must be ${MAX_IMPORTED_DESCRIPTION_LENGTH} characters or fewer.`);
   if (!Array.isArray(value.presets)) {
     return emptyWorkspaceImport('The Workspace document is missing its presets array.');
   }
+  if (value.presets.length > MAX_IMPORTED_PRESETS) return emptyWorkspaceImport(`A Workspace may contain at most ${MAX_IMPORTED_PRESETS} presets.`);
 
   const accepted: PortablePreset[] = [];
   const invalid: InvalidWorkspacePreset[] = [];
@@ -248,15 +265,18 @@ function normalizeImportedPreset(
   if (!isRecord(value)) return { invalid: { index, reason: 'Preset entry must be an object.' } };
   const name = typeof value.name === 'string' ? value.name.trim() : '';
   if (!name) return { invalid: { index, reason: 'Preset name must be a non-empty string.' } };
+  if (name.length > MAX_IMPORTED_FIELD_LENGTH) return { invalid: { index, name: name.slice(0, MAX_IMPORTED_FIELD_LENGTH), reason: `Preset names must be ${MAX_IMPORTED_FIELD_LENGTH} characters or fewer.` } };
   if (value.description !== undefined && typeof value.description !== 'string') {
     return { invalid: { index, name, reason: 'Preset description must be a string when provided.' } };
   }
+  if (typeof value.description === 'string' && value.description.length > MAX_IMPORTED_DESCRIPTION_LENGTH) return { invalid: { index, name, reason: `Preset descriptions must be ${MAX_IMPORTED_DESCRIPTION_LENGTH} characters or fewer.` } };
   if (!Array.isArray(value.targets)) {
     return { invalid: { index, name, reason: 'Preset targets must be an array.' } };
   }
+  if (value.targets.length > MAX_IMPORTED_TARGETS) return { invalid: { index, name, reason: `A preset may contain at most ${MAX_IMPORTED_TARGETS} targets.` } };
   const invalidTarget = value.targets.some((target) => {
     if (!isRecord(target) || typeof target.cluster !== 'string' || typeof target.namespace !== 'string') return true;
-    return !target.cluster.trim() || !target.namespace.trim();
+    return !target.cluster.trim() || !target.namespace.trim() || target.cluster.length > MAX_IMPORTED_FIELD_LENGTH || target.namespace.length > MAX_IMPORTED_FIELD_LENGTH;
   });
   if (invalidTarget) {
     return { invalid: { index, name, reason: 'Preset contains an invalid target; each target needs a cluster and namespace.' } };
@@ -291,6 +311,12 @@ function normalizeTargets(value: unknown): Target[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function objectDepth(value: unknown, depth = 0): number {
+  if (!isRecord(value) && !Array.isArray(value)) return depth;
+  const values = Array.isArray(value) ? value : Object.values(value);
+  return values.reduce((maximum, child) => Math.max(maximum, objectDepth(child, depth + 1)), depth);
 }
 
 function normalizePreset(value: unknown): Preset | null {

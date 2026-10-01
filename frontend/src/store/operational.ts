@@ -1,4 +1,4 @@
-import { invalidateNamespacesRequests, invalidatePodsRequests } from './requestIds';
+import { invalidateContextsRequests, invalidateNamespacesRequests, invalidatePodsRequests } from './requestIds';
 import type { KubeConfigStatus } from '../types';
 import type { StoreHelpers, StoreSet } from './types';
 
@@ -6,6 +6,7 @@ export function createStoreHelpers(set: StoreSet): StoreHelpers {
   const resetWorkspaceView = () => {
     invalidateNamespacesRequests();
     invalidatePodsRequests();
+    invalidateContextsRequests();
     set((state) => ({
       targets: [],
       namespaces: [],
@@ -28,6 +29,7 @@ export function createStoreHelpers(set: StoreSet): StoreHelpers {
   const applyKubeconfigChange = (kubeconfigStatus?: KubeConfigStatus) => {
     invalidateNamespacesRequests();
     invalidatePodsRequests();
+    invalidateContextsRequests();
     set((state) => ({
       kubeconfigStatus: kubeconfigStatus ?? state.kubeconfigStatus,
       kubeconfigStatusLoading: false,

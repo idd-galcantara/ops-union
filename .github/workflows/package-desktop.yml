@@ -33,8 +33,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run security and workspace gates
+        run: npm run security:prepackage
+
       - name: Build Linux packages
         run: npm run package:linux
+
+      - name: Inspect Linux package inputs
+        run: node scripts/inspect-package.mjs
 
       - name: Upload Linux artifacts
         uses: actions/upload-artifact@v4
@@ -62,8 +68,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run security and workspace gates
+        run: npm run security:prepackage
+
       - name: Build Windows installer
         run: npm run package:win
+
+      - name: Inspect Windows package inputs
+        run: node scripts/inspect-package.mjs
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -89,11 +101,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run security and workspace gates
+        run: npm run security:prepackage
+
       - name: Build macOS packages
         run: npm run package:mac
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
           DEBUG_DMG: 'true'
+
+      - name: Inspect macOS package inputs
+        run: node scripts/inspect-package.mjs
 
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4

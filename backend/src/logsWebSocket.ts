@@ -6,12 +6,20 @@ import type { AggregateLogEvent, LegacyLogEvent } from './logsTypes.js';
 import { validateHistoryCancel, validateHistoryQueryStart, validateHistoryQueryWindow, validateHistoryStart, validateHistoryWindow, validateSubscription } from './logsProtocol.js';
 import { safeErrorMessage } from './kube/podsService.js';
 import { HistorySessionManager } from './historySession.js';
+import { MAX_KUBERNETES_IDENTIFIER_LENGTH, MAX_WEBSOCKET_PAYLOAD_BYTES } from './resourceLimits.js';
 
 /** Messages pushed to the browser over the log socket. */
 type OutboundMessage = LegacyLogEvent;
 
 const LOGS_PATH = /^\/api\/pods\/([^/]+)\/([^/]+)\/([^/]+)\/logs$/;
 const AGGREGATE_LOGS_PATH = '/api/logs';
+const SAFE_ORIGIN_PATTERN = /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?$/;
+
+export interface WebSocketPolicy {
+  allowedOrigins?: string[];
+  capability?: string;
+  requireCapability?: boolean;
+}
 
 /**
  * Attaches the log-streaming WebSocket endpoint to the HTTP server.
@@ -21,13 +29,51 @@ const AGGREGATE_LOGS_PATH = '/api/logs';
  * Uses `noServer` + manual upgrade handling so only this exact path is accepted;
  * any other upgrade attempt is rejected instead of silently held open.
  */
-export function attachLogsWebSocket(server: Server, options: { historyManager?: HistorySessionManager } = {}): WebSocketServer {
-  const wss = new WebSocketServer({ noServer: true });
+export function attachLogsWebSocket(server: Server, options: { historyManager?: HistorySessionManager; policy?: WebSocketPolicy; isShuttingDown?: () => boolean } = {}): WebSocketServer {
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WEBSOCKET_PAYLOAD_BYTES });
   const historyManager = options.historyManager ?? new HistorySessionManager();
-  server.once('close', () => historyManager.close());
+  const policy = options.policy ?? {};
+  server.once('close', () => {
+    for (const client of wss.clients) client.close();
+    wss.close();
+    historyManager.close();
+  });
 
   server.on('upgrade', (request, socket, head) => {
-    const url = new URL(request.url ?? '', 'http://localhost');
+    if (options.isShuttingDown?.()) {
+      socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    let url: URL;
+    try {
+      url = new URL(request.url ?? '', 'http://localhost');
+    } catch {
+      socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    const origin = request.headers.origin;
+    const enforcePolicy = options.policy !== undefined;
+    const allowedOrigins = policy.allowedOrigins ?? (origin && SAFE_ORIGIN_PATTERN.test(origin) ? [origin] : []);
+    const capabilityHeader = request.headers['x-ops-union-capability'];
+    const cookieCapability = request.headers.cookie?.split(';').map((value) => value.trim()).find((value) => value.startsWith('ops-union-capability='))?.slice('ops-union-capability='.length);
+    const protocols = typeof request.headers['sec-websocket-protocol'] === 'string'
+      ? request.headers['sec-websocket-protocol'].split(',').map((value) => value.trim())
+      : [];
+    let capability: string | undefined;
+    try {
+      capability = typeof capabilityHeader === 'string'
+        ? capabilityHeader
+        : cookieCapability ? decodeURIComponent(cookieCapability) : protocols.find((value) => value.startsWith('ops-union-'))?.slice('ops-union-'.length);
+    } catch {
+      capability = undefined;
+    }
+    if (enforcePolicy && (!origin || !allowedOrigins.includes(origin) || (policy.requireCapability !== false && (!policy.capability || capability !== policy.capability)))) {
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
     if (url.pathname === AGGREGATE_LOGS_PATH) {
       wss.handleUpgrade(request, socket, head, (ws) => handleAggregateLogSocket(ws, historyManager));
       return;
@@ -40,16 +86,23 @@ export function attachLogsWebSocket(server: Server, options: { historyManager?: 
       return;
     }
 
-    wss.handleUpgrade(request, socket, head, (ws) => {
-      handleLogSocket(ws, {
-        cluster: decodeURIComponent(match[1]),
-        namespace: decodeURIComponent(match[2]),
-        pod: decodeURIComponent(match[3]),
+    try {
+      const cluster = decodeURIComponent(match[1]);
+      const namespace = decodeURIComponent(match[2]);
+      const pod = decodeURIComponent(match[3]);
+      if ([cluster, namespace, pod].some((value) => !value || value.length > MAX_KUBERNETES_IDENTIFIER_LENGTH)) throw new Error('invalid path');
+      wss.handleUpgrade(request, socket, head, (ws) => handleLogSocket(ws, {
+        cluster,
+        namespace,
+        pod,
         container: url.searchParams.get('container') ?? '',
         follow: url.searchParams.get('follow') !== 'false',
         tailLines: normalizeTailLines(url.searchParams.get('tailLines')),
-      });
-    });
+      }));
+    } catch {
+      socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+    }
   });
 
   return wss;

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const rootLockfile = path.join(root, 'package-lock.json');
 const stagingDirectory = path.join(root, '.build', 'backend-runtime');
 const backendPackage = path.join(root, 'backend', 'package.json');
 const forbiddenNames = new Set(['.kube', 'kubeconfig']);
@@ -32,15 +33,28 @@ async function assertNoKubeconfigFiles(directory) {
 await rm(stagingDirectory, { recursive: true, force: true });
 await mkdir(stagingDirectory, { recursive: true });
 await cp(backendPackage, path.join(stagingDirectory, 'package.json'));
+const rootLock = JSON.parse(await readFile(rootLockfile, 'utf8'));
 
 const packageJson = JSON.parse(await readFile(path.join(stagingDirectory, 'package.json'), 'utf8'));
 if (!packageJson.dependencies || Object.keys(packageJson.dependencies).length === 0) {
   throw new Error('Backend production dependencies are missing from backend/package.json.');
 }
 
+for (const [name, range] of Object.entries(packageJson.dependencies)) {
+  const locked = rootLock.packages[`node_modules/${name}`]?.version;
+  if (!locked) throw new Error(`Dependency ${name} is absent from the reviewed root lockfile.`);
+  packageJson.dependencies[name] = locked;
+}
+await writeFile(path.join(stagingDirectory, 'package.json'), `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
+
 await run(
   process.platform === 'win32' ? 'npm.cmd' : 'npm',
-  ['install', '--omit=dev', '--ignore-scripts', '--no-package-lock'],
+  ['install', '--omit=dev', '--ignore-scripts', '--package-lock-only'],
+  stagingDirectory,
+);
+await run(
+  process.platform === 'win32' ? 'npm.cmd' : 'npm',
+  ['ci', '--omit=dev', '--ignore-scripts'],
   stagingDirectory,
 );
 await assertNoKubeconfigFiles(path.join(root, 'backend', 'dist'));

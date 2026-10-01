@@ -67,3 +67,22 @@ test('parseClusters rejects invalid bodies', () => {
   assert.ok('error' in parseClusters({ clusters: [''] }));
   assert.ok('error' in parseClusters({ clusters: [123] }));
 });
+
+test('parseClusters caps contexts before service fan-out', () => {
+  assert.ok('error' in parseClusters({ clusters: Array.from({ length: 33 }, (_, index) => `cluster-${index}`) }));
+  assert.ok('error' in parseClusters({ clusters: ['x'.repeat(129)] }));
+});
+
+test('getNamespaces never exceeds the bounded read scheduler', async () => {
+  let active = 0;
+  let maximum = 0;
+  const result = await getNamespaces(Array.from({ length: 20 }, (_, index) => `cluster-${index}`), async (cluster) => {
+    active += 1;
+    maximum = Math.max(maximum, active);
+    await new Promise((resolve) => setImmediate(resolve));
+    active -= 1;
+    return [cluster];
+  });
+  assert.equal(result.errors.length, 0);
+  assert.ok(maximum <= 8);
+});

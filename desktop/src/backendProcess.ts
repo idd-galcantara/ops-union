@@ -59,7 +59,17 @@ export function stopBackend(child: ChildProcess | null): Promise<void> {
   if (!child || child.exitCode !== null || child.killed) return Promise.resolve();
 
   return new Promise((resolve) => {
-    child.once('exit', () => resolve());
-    child.kill();
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(escalate);
+      clearTimeout(failSafe);
+      resolve();
+    };
+    const escalate = setTimeout(() => { if (!settled) child.kill('SIGKILL'); }, 4_000);
+    const failSafe = setTimeout(finish, 5_000);
+    child.once('exit', finish);
+    child.kill('SIGTERM');
   });
 }

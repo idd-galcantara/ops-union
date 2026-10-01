@@ -12,8 +12,22 @@ import { podsRouter } from './routes/pods.js';
  * ops-union is read-only: only GET routes live here. Cluster read endpoints
  * (pods, describe, metrics) and the log WebSocket are added in later phases.
  */
-export function createApp(options: { frontendDist?: string } = {}): Express {
+export function createApp(options: { frontendDist?: string; internalToken?: string } = {}): Express {
   const app = express();
+  app.use((_req, res, next) => {
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    next();
+  });
+  if (options.internalToken) {
+    app.use((req, res, next) => {
+      if (req.path.startsWith('/api/')) {
+        next();
+        return;
+      }
+      res.setHeader('Set-Cookie', `ops-union-capability=${encodeURIComponent(options.internalToken!)}; HttpOnly; SameSite=Strict; Path=/`);
+      next();
+    });
+  }
   app.use(express.json());
 
   app.get('/api/health', (_req: Request, res: Response) => {

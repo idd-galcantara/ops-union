@@ -3,11 +3,33 @@ import { createApp } from './app.js';
 import { config } from './config.js';
 import { attachLogsWebSocket } from './logsWebSocket.js';
 
-const app = createApp({ frontendDist: config.frontendDist });
+const app = createApp({ frontendDist: config.frontendDist, internalToken: config.internalToken });
 const server = createServer(app);
+let shuttingDown = false;
 
 // Log streaming shares the HTTP server via the WebSocket upgrade path.
-attachLogsWebSocket(server);
+const allowedOrigins = (process.env.OPS_FLOW_ALLOWED_ORIGINS ?? `http://127.0.0.1:${config.port},http://localhost:${config.port},http://127.0.0.1:5173,http://localhost:5173`)
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const logsWebSocket = attachLogsWebSocket(server, {
+  policy: {
+    allowedOrigins,
+    capability: config.internalToken,
+    requireCapability: Boolean(config.internalToken),
+  },
+  isShuttingDown: () => shuttingDown,
+});
+
+const shutdown = () => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  for (const client of logsWebSocket.clients) client.terminate();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 5_000).unref();
+};
+process.once('SIGINT', shutdown);
+process.once('SIGTERM', shutdown);
 
 /**
  * A leftover backend holding the port is the most common local hiccup. Report it

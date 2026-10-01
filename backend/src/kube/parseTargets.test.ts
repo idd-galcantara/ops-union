@@ -41,3 +41,10 @@ test('parseTargets rejects targets with missing or empty fields', () => {
   assert.ok('error' in parseTargets({ targets: [{ cluster: 'a', namespace: '  ' }] }));
   assert.ok('error' in parseTargets({ targets: ['not-an-object'] }));
 });
+
+test('parseTargets deduplicates targets and rejects the documented caps', () => {
+  const deduplicated = parseTargets({ targets: [{ cluster: 'c', namespace: 'n' }, { cluster: ' c ', namespace: ' n ' }] });
+  assert.deepEqual('targets' in deduplicated ? deduplicated.targets : [], [{ cluster: 'c', namespace: 'n' }]);
+  assert.ok('error' in parseTargets({ targets: [{ cluster: 'x'.repeat(129), namespace: 'n' }] }));
+  assert.ok('error' in parseTargets({ targets: Array.from({ length: 257 }, (_, index) => ({ cluster: `c-${index}`, namespace: 'n' })) }));
+});

@@ -49,6 +49,13 @@ Cada resultado preserva sua origem. Assim, pods com o mesmo nome em clusters dif
 
 O projeto e deliberadamente **somente leitura**. Nao existem operacoes de restart, scale, exec, attach, port-forward, create, patch, update ou delete.
 
+## Seguranca e auditoria
+
+As fronteiras de seguranca, o tratamento de credenciais, a exposicao local do backend, a ponte
+Electron, o acesso read-only ao Kubernetes, as dependencias e os riscos residuais sao registrados
+no [relatorio de auditoria de seguranca](docs/SECURITY-AUDIT.md). O documento tambem lista as
+evidencias verificadas, limitacoes da revisao e recomendacoes de acompanhamento.
+
 ## Visao geral
 
 ```mermaid

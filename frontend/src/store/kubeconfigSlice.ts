@@ -1,5 +1,6 @@
 import { fetchContexts, fetchKubeConfigStatus } from '../api';
 import type { OpsFlowState, StoreGet, StoreHelpers, StoreSet } from './types';
+import { isCurrentContextsRequest, nextContextsRequestId } from './requestIds';
 
 export function createKubeconfigActions(
   set: StoreSet,
@@ -8,11 +9,15 @@ export function createKubeconfigActions(
 ): Pick<OpsFlowState, 'loadContexts' | 'loadKubeconfigStatus' | 'selectKubeconfig' | 'resetKubeconfig'> {
   return {
     loadContexts: async () => {
+      const requestId = nextContextsRequestId();
+      const revision = get().configurationRevision;
       set({ contextsLoading: true, contextsError: undefined });
       try {
         const contexts = await fetchContexts();
+        if (!isCurrentContextsRequest(requestId) || revision !== get().configurationRevision) return;
         set({ contexts, contextsLoading: false });
       } catch (err) {
+        if (!isCurrentContextsRequest(requestId) || revision !== get().configurationRevision) return;
         set({
           contextsLoading: false,
           contextsError: err instanceof Error ? err.message : 'Failed to load contexts.',

@@ -94,6 +94,26 @@ test('Workspace bundle exports and parses multiple Workspaces as individual cand
   assert.equal(parseWorkspaceImport(serializeWorkspaceBundle([first, second])).workspaceName, 'My Workspace');
 });
 
+test('Workspace imports enforce byte, collection, field, and nesting budgets', () => {
+  const oversized = parseWorkspaceImportFile(' '.repeat(2 * 1024 * 1024 + 1));
+  assert.match(oversized.error ?? '', /2 MiB/);
+  const tooManyWorkspaces = parseWorkspaceImportFile(JSON.stringify({
+    format: 'ops-union.workspace-bundle', version: 1, exportedAt: '2026-09-30T12:00:00.000Z',
+    workspaces: Array.from({ length: 101 }, (_, index) => ({ name: `workspace-${index}`, presets: [] })),
+  }));
+  assert.match(tooManyWorkspaces.error ?? '', /100/);
+  const tooManyTargets = parseWorkspaceImport(JSON.stringify({
+    format: 'ops-union.workspace', version: 1, exportedAt: '2026-09-30T12:00:00.000Z',
+    workspace: { name: 'bounded' }, presets: [{ name: 'large', targets: Array.from({ length: 257 }, () => ({ cluster: 'c', namespace: 'n' })) }],
+  }));
+  assert.match(tooManyTargets.invalid[0]?.reason ?? '', /256/);
+  const tooLong = parseWorkspaceImport(JSON.stringify({
+    format: 'ops-union.workspace', version: 1, exportedAt: '2026-09-30T12:00:00.000Z',
+    workspace: { name: 'x'.repeat(129) }, presets: [],
+  }));
+  assert.match(tooLong.error ?? '', /128/);
+});
+
 test('Workspace import preserves the source name for duplicate-name validation', () => {
   const existing = createDefaultWorkspace();
   existing.workspaces[0].name = 'Payments Team';

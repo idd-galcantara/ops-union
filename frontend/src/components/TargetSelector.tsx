@@ -34,7 +34,7 @@ import {
 } from '../presetTransfer';
 import { useOpsFlowStore } from '../store';
 import { targetKey, type NamespaceInfo } from '../types';
-import { MAX_WORKSPACE_NAME_LENGTH, parseWorkspaceImportFile, validateWorkspaceName, type Workspace, type WorkspaceImportResult } from '../workspaces';
+import { MAX_WORKSPACE_IMPORT_BYTES, MAX_WORKSPACE_NAME_LENGTH, parseWorkspaceImportFile, validateWorkspaceName, type Workspace, type WorkspaceImportResult } from '../workspaces';
 import { areAllVisibleWorkspacesSelected, filterWorkspaces, getSelectedVisibleWorkspaceIds, type WorkspaceDeleteIntent } from '../workspaceViewModel';
 import { DestructiveConfirmation } from './DestructiveConfirmation';
 import { TargetSelectionPanel } from './TargetSelectionPanel';
@@ -634,6 +634,12 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
     setStatus(null);
     importFeedbackRef.current = false;
     setFileOperation('importing');
+    if (file.size > MAX_WORKSPACE_IMPORT_BYTES) {
+      setImportCandidates(null);
+      setImportPreview({ accepted: [], invalid: [], error: 'The Workspace file is larger than the 2 MiB import limit.' });
+      window.setTimeout(() => setFileOperation(null), 350);
+      return;
+    }
     void file.text().then((raw) => {
       const parsed = parseWorkspaceImportFile(raw);
       if (parsed.error) {

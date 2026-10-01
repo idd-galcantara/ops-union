@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { connect } from 'node:net';
 import { test } from 'node:test';
 import WebSocket from 'ws';
 import { HistorySessionManager } from './historySession.js';
@@ -239,4 +240,49 @@ test('closing the HTTP server cleans history sessions attached to its WebSocket 
   wss.close();
   await new Promise<void>((resolve) => server.close(() => resolve()));
   assert.equal(started.session.isCleaned, true);
+});
+
+test('malformed legacy URI segments are rejected without taking down health', async () => {
+  const server = createServer((request, response) => {
+    if (request.url === '/api/health') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end('{"status":"ok"}');
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+  attachLogsWebSocket(server);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const response = await new Promise<string>((resolve) => {
+    const socket = connect(address.port, '127.0.0.1', () => {
+      socket.end(`GET /api/pods/%E0%A4/%6E/pod/logs?container=app HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n`);
+    });
+    let data = '';
+    socket.on('data', (chunk) => { data += chunk.toString(); });
+    socket.on('close', () => resolve(data));
+  });
+  assert.match(response, /^HTTP\/1\.1 400 Bad Request/);
+  const health = await fetch(`http://127.0.0.1:${address.port}/api/health`);
+  assert.equal(health.status, 200);
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+});
+
+test('configured WebSocket policy rejects arbitrary origins and accepts the capability', async () => {
+  const server = createServer();
+  const wss = attachLogsWebSocket(server, { policy: { allowedOrigins: ['http://127.0.0.1'], capability: 'capability' } });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const rejected = new WebSocket(`ws://127.0.0.1:${address.port}/api/logs`, { headers: { Origin: 'https://untrusted.example', 'x-ops-union-capability': 'capability' } });
+  rejected.once('error', () => undefined);
+  await new Promise<void>((resolve) => rejected.once('close', resolve));
+  const accepted = new WebSocket(`ws://127.0.0.1:${address.port}/api/logs`, { headers: { Origin: 'http://127.0.0.1', 'x-ops-union-capability': 'capability' } });
+  await new Promise<void>((resolve, reject) => { accepted.once('open', resolve); accepted.once('error', reject); });
+  accepted.close();
+  await new Promise<void>((resolve) => accepted.once('close', resolve));
+  wss.close();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
 });

@@ -4,6 +4,34 @@ import { createPreset } from './presets';
 import { buildTransferPlan, catalogForTransfer } from './presetTransfer';
 import { useOpsFlowStore } from './store';
 
+test('context responses cannot commit after a revision change or newer request', async () => {
+  const original = useOpsFlowStore.getState();
+  const originalFetch = globalThis.fetch;
+  const pending: Array<(response: Response) => void> = [];
+  useOpsFlowStore.setState({ contexts: [{ name: 'current', cluster: 'current' }], configurationRevision: 4 });
+  globalThis.fetch = async () => new Promise<Response>((resolve) => { pending.push(resolve); });
+
+  try {
+    const staleRevision = useOpsFlowStore.getState().loadContexts();
+    useOpsFlowStore.setState({ configurationRevision: 5 });
+    pending.shift()!(new Response(JSON.stringify({ contexts: [{ name: 'old', cluster: 'old' }] }), { status: 200 }));
+    await staleRevision;
+    assert.equal(useOpsFlowStore.getState().contexts[0].name, 'current');
+
+    const older = useOpsFlowStore.getState().loadContexts();
+    const newer = useOpsFlowStore.getState().loadContexts();
+    pending.pop()!(new Response(JSON.stringify({ contexts: [{ name: 'new', cluster: 'new' }] }), { status: 200 }));
+    await newer;
+    pending.shift()!(new Response(JSON.stringify({ contexts: [{ name: 'older', cluster: 'older' }] }), { status: 200 }));
+    await older;
+    assert.equal(useOpsFlowStore.getState().contexts[0].name, 'new');
+    assert.equal(useOpsFlowStore.getState().contextsLoading, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    useOpsFlowStore.setState(original);
+  }
+});
+
 test('savePreset rejects a duplicate name without changing the catalog', () => {
   const original = useOpsFlowStore.getState();
   const existing = createPreset('Existing preset', [{ cluster: 'c1', namespace: 'n1' }]);

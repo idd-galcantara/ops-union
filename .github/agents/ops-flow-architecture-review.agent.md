@@ -3,7 +3,7 @@ name: ops-union-architecture-review
 description: "Read-only architecture auditor for ops-union. Use when mapping code structure, runtime boundaries, data flows, contracts, ownership, gaps, risks, review findings, test coverage, or prioritized improvements across the repository."
 argument-hint: "Describe the architecture area, flow, or audit scope to review"
 tools: [read, edit, search, execute, agent, todo]
-agents: [ops-union-backend, ops-union-frontend, ops-union-integration-qa, ops-union-specs]
+agents: [ops-union-backend, ops-union-frontend, ops-union-integration-qa, ops-union-security, ops-union-specs]
 user-invocable: true
 ---
 
@@ -55,6 +55,8 @@ Delegate narrowly:
   accessibility, and frontend/desktop validation surfaces.
 - `@ops-union-integration-qa` reviews executable validation, real-cluster evidence, packaging/runtime
   boundaries, security, and the read-only guarantee.
+- `@ops-union-security` reviews threat boundaries, secret handling, Electron/backend exposure,
+  dependency vulnerabilities, resource limits, read-only enforcement, and security evidence.
 - `@ops-union-specs` helps turn accepted findings into separate future specifications; it does not
   implement findings during this audit.
 

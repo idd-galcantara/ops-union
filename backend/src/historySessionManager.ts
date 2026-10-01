@@ -19,6 +19,7 @@ export class HistorySessionManager {
   private nextGeneration = 0;
   private readonly cleanupTimer: NodeJS.Timeout;
   private readonly storageReady: boolean;
+  private closed = false;
 
   constructor(options: HistorySessionManagerOptions = {}) {
     this.rootDir = options.rootDir ?? path.join(os.tmpdir(), HISTORY_ROOT_PREFIX);
@@ -80,6 +81,8 @@ export class HistorySessionManager {
   }
 
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
     clearInterval(this.cleanupTimer);
     for (const session of this.sessions.values()) {
       if (session.isTerminal) session.cleanup();

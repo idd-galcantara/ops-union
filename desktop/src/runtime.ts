@@ -90,6 +90,23 @@ export function createDesktopRuntime(persistence: DesktopPersistence, preloadPat
       },
     });
 
+    const rendererOrigin = `http://127.0.0.1:${port}`;
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+      try {
+        const target = new URL(url);
+        const expected = new URL(rendererOrigin);
+        if (
+          target.protocol !== expected.protocol
+          || target.hostname !== expected.hostname
+          || target.port !== expected.port
+          || target.pathname !== expected.pathname
+          || target.username
+          || target.password
+        ) event.preventDefault();
+      } catch {
+        event.preventDefault();
+      }
+    });
     mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     mainWindow.on('close', (event) => {
       if (shuttingDown) return;
@@ -100,7 +117,7 @@ export function createDesktopRuntime(persistence: DesktopPersistence, preloadPat
       mainWindow = null;
       app.quit();
     });
-    await mainWindow.loadURL(`http://127.0.0.1:${port}`);
+    await mainWindow.loadURL(rendererOrigin);
   }
 
   return {

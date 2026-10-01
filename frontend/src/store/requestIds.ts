@@ -1,5 +1,19 @@
 let namespacesRequestId = 0;
 let podsRequestId = 0;
+let contextsRequestId = 0;
+
+export function nextContextsRequestId(): number {
+  contextsRequestId += 1;
+  return contextsRequestId;
+}
+
+export function invalidateContextsRequests(): void {
+  contextsRequestId += 1;
+}
+
+export function isCurrentContextsRequest(requestId: number): boolean {
+  return requestId === contextsRequestId;
+}
 
 export function nextNamespacesRequestId(): number {
   namespacesRequestId += 1;

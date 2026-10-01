@@ -49,6 +49,21 @@ test('getPods returns empty pods and collects all errors when every target fails
   assert.equal(errors.length, 2);
 });
 
+test('getPods never exceeds the bounded read scheduler', async () => {
+  let active = 0;
+  let maximum = 0;
+  const targets = Array.from({ length: 20 }, (_, index) => ({ cluster: `cluster-${index}`, namespace: 'namespace' }));
+  const result = await getPods(targets, async () => {
+    active += 1;
+    maximum = Math.max(maximum, active);
+    await new Promise((resolve) => setImmediate(resolve));
+    active -= 1;
+    return [];
+  });
+  assert.equal(result.errors.length, 0);
+  assert.ok(maximum <= 8);
+});
+
 test('safeErrorMessage prefers a kubernetes body message', () => {
   const reason = { body: { message: 'namespaces "x" not found' } };
   assert.equal(safeErrorMessage(reason), 'namespaces "x" not found');

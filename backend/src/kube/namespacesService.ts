@@ -1,5 +1,7 @@
 import { coreClientForContext } from './kubeconfig.js';
 import { safeErrorMessage } from './podsService.js';
+import { mapWithConcurrency } from './boundedScheduler.js';
+import { boundedIdentifier, MAX_ACTIVE_KUBERNETES_READS, MAX_CONTEXTS_PER_REQUEST } from '../resourceLimits.js';
 
 /** A namespace and the clusters where it exists. */
 export interface NamespaceInfo {
@@ -44,9 +46,7 @@ export async function getNamespaces(
 ): Promise<NamespacesFanOutResult> {
   const unique = [...new Set(clusters.map((c) => c.trim()).filter(Boolean))];
 
-  const settled = await Promise.allSettled(
-    unique.map(async (cluster) => ({ cluster, names: await lister(cluster) })),
-  );
+  const settled = await mapWithConcurrency(unique, MAX_ACTIVE_KUBERNETES_READS, async (cluster) => ({ cluster, names: await lister(cluster) }));
 
   const byName = new Map<string, Set<string>>();
   const errors: ClusterError[] = [];
@@ -80,14 +80,16 @@ export function parseClusters(body: unknown): { clusters: string[] } | { error: 
   if (!Array.isArray(raw) || raw.length === 0) {
     return { error: '"clusters" must be a non-empty list of context names.' };
   }
+  if (raw.length > MAX_CONTEXTS_PER_REQUEST) return { error: `A request may contain at most ${MAX_CONTEXTS_PER_REQUEST} contexts.` };
 
   const clusters: string[] = [];
   for (const item of raw) {
-    if (typeof item !== 'string' || !item.trim()) {
-      return { error: 'Each cluster must be a non-empty string.' };
-    }
+    if (typeof item !== 'string') return { error: 'Each cluster must be a non-empty string.' };
+    const error = boundedIdentifier(item, 'cluster');
+    if (error) return { error };
     clusters.push(item.trim());
   }
 
-  return { clusters };
+  const unique = [...new Set(clusters)];
+  return { clusters: unique };
 }

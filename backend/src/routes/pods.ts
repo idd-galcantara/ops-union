@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { errorStatusCode, getPods, safeErrorMessage } from '../kube/podsService.js';
 import { getPodDescribe, getPodMetrics } from '../kube/podDetailsService.js';
 import { parseTargets } from '../kube/parseTargets.js';
+import { boundedIdentifier } from '../resourceLimits.js';
 
 /**
  * POST /api/pods
@@ -37,6 +38,12 @@ function parsePodParams(
   if (!cluster || !namespace || !pod) {
     return { error: 'Provide cluster, namespace and pod.' };
   }
+  const clusterError = boundedIdentifier(cluster, 'cluster');
+  const namespaceError = boundedIdentifier(namespace, 'namespace');
+  const podError = boundedIdentifier(pod, 'pod');
+  if (clusterError) return { error: clusterError };
+  if (namespaceError) return { error: namespaceError };
+  if (podError) return { error: podError };
   return { cluster, namespace, pod };
 }
 

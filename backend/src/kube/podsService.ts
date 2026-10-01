@@ -2,6 +2,8 @@ import type { V1Pod } from '@kubernetes/client-node';
 import { coreClientForContext } from './kubeconfig.js';
 import { normalizePod } from './normalizePod.js';
 import type { NormalizedPod, PodsFanOutResult, Target, TargetError } from './types.js';
+import { mapWithConcurrency } from './boundedScheduler.js';
+import { MAX_ACTIVE_KUBERNETES_READS } from '../resourceLimits.js';
 
 /**
  * Fetches raw pods for a single target. Injectable so the fan-out can be tested
@@ -45,7 +47,7 @@ export function safeErrorMessage(reason: unknown): string {
     const anyReason = reason as { code?: unknown; body?: unknown; message?: unknown };
 
     const statusMessage = kubernetesStatusMessage(anyReason.body);
-    if (statusMessage) return statusMessage;
+    if (statusMessage && isSafeOperationalText(statusMessage)) return statusMessage.slice(0, 160);
 
     // Node system errors (ECONNREFUSED, UNABLE_TO_GET_ISSUER_CERT, ...) use string codes.
     if (typeof anyReason.code === 'string' && anyReason.code) {
@@ -63,13 +65,18 @@ export function safeErrorMessage(reason: unknown): string {
           .find((line) => line.startsWith('Message:'))
           ?.replace(/^Message:\s*/, '')
           .trim();
-        const useful = reason && reason !== 'Unknown API Status Code!' ? ` ${reason}` : '';
+        const useful = reason && reason !== 'Unknown API Status Code!' && isSafeOperationalText(reason) ? ` ${reason.slice(0, 120)}` : '';
         return `The cluster API responded ${status}.${useful}`;
       }
-      return anyReason.message;
+      if (isSafeOperationalText(anyReason.message)) return anyReason.message.slice(0, 160);
     }
   }
   return 'Failed to query the target.';
+}
+
+function isSafeOperationalText(value: string): boolean {
+  return !/(?:^|[A-Za-z]:)[\\/]|(?:https?|wss?):|(?:authorization|cookie|token|secret|certificate|kubeconfig|headers?)\b/i.test(value)
+    && !/[\u0000-\u001f\u007f]/.test(value);
 }
 
 /** HTTP status carried by a Kubernetes client error, when there is one. */
@@ -87,12 +94,10 @@ export async function getPods(
   lister: PodLister = defaultPodLister,
   now: number = Date.now(),
 ): Promise<PodsFanOutResult> {
-  const settled = await Promise.allSettled(
-    targets.map(async (target) => {
+  const settled = await mapWithConcurrency(targets, MAX_ACTIVE_KUBERNETES_READS, async (target) => {
       const items = await lister(target);
       return items.map((pod) => normalizePod(pod, target, now));
-    }),
-  );
+    });
 
   const pods: NormalizedPod[] = [];
   const errors: TargetError[] = [];
