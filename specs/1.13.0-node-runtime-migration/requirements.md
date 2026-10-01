@@ -2,11 +2,24 @@
 
 ## Status and scope
 
-Version 1.13.0 establishes and migrates the supported Node.js runtime from the current CI baseline
-of `25.2.1` to a Node.js 26 LTS candidate. The exact Node 26 patch version SHALL be frozen by the
-compatibility task before implementation. The scope includes npm, package engines, local setup,
-CI, TypeScript/node typings, backend runtime behavior, desktop child-process behavior, packaging,
-and documentation.
+Version 1.13.0 establishes and migrates the supported Node.js runtime from the current CI/local
+baseline of Node `25.2.1` and npm `11.6.2` to Node `26.10.0` and npm `11.6.2`. The exact target,
+support range, rollback, and validation gates are frozen by the compatibility task. The scope
+includes npm, package engines, local setup, CI, TypeScript/node typings, backend runtime behavior,
+desktop child-process behavior, packaging, and documentation.
+
+The approved compatibility matrix is:
+
+| Consumer | Current baseline | Target contract |
+| --- | --- | --- |
+| Local development and scripts | Node `25.2.1`, npm `11.6.2` | Node `26.10.0`, npm `11.6.2` |
+| GitHub Actions packaging | Node `25.2.1` on Linux, Windows, and macOS hosts | Node `26.10.0` on all packaging hosts |
+| Workspace TypeScript/tooling | `@types/node` `22.20.4`, TypeScript `5.7.2`, `tsx` `4.23.15` | Same versions; runtime-only migration |
+| Desktop runtime/tooling | Electron `44.5.1`, electron-builder `26.15.3` | Unchanged; Node migration must not combine an Electron major |
+
+The support contract is Node `>=26.10.0 <26.11.0` and npm `>=11.6.2 <11.7.0`. The rollback target
+is Node `25.2.1` with npm `11.6.2`, restoring the prior CI, manifest, lockfile, and documentation
+state. Registry evidence confirms Node `26.10.0` is available and executes with npm `11.6.2`.
 
 The migration preserves the single-user, loopback-bound, read-only Kubernetes application boundary.
 It does not authorize unrelated framework upgrades, Kubernetes operations, commits, tags, pushes,
@@ -29,7 +42,8 @@ or release publication.
    or silently change API behavior.
 3. Root/workspace manifests, lockfile, CI, scripts, and current runtime documentation SHALL agree
    on the supported runtime contract.
-4. No commit, tag, push, publication, or release artifact replacement is authorized here.
+4. No release publication or artifact replacement is authorized here; commit and push remain
+   outside this spec's implementation work.
 
 **Acceptance criteria:** A compatibility matrix identifies every runtime consumer and its validation
 gate.

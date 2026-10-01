@@ -2,8 +2,9 @@
 
 ## Release intent
 
-v1.13.0 moves the repository's tested runtime contract from Node `25.2.1` to an approved Node 26
-LTS patch. The exact patch is selected from the compatibility baseline, not guessed during editing.
+v1.13.0 moves the repository's tested runtime contract from Node `25.2.1`/npm `11.6.2` to Node
+`26.10.0`/npm `11.6.2`. The exact patch is frozen by the compatibility baseline before source
+changes.
 The sequence is:
 
 ```text
@@ -35,9 +36,9 @@ Electron tooling, CI actions, OS/architecture hosts, install scripts, native dep
 child startup, and packaged runtime staging. Existing API, IPC, WebSocket, filesystem, and
 Kubernetes read-only contracts are preserved by default.
 
-If Node 26 is incompatible with the approved Electron line or package-builder, the task must record
-the blocker and hand off the coordinated change to the Electron migration spec rather than silently
-combining two major migrations.
+Node `26.10.0` is compatible with the approved Electron `44.5.1` line and package-builder `26.15.3`
+for this runtime-only change. If a target-runtime issue requires an Electron major, the task must
+record the blocker and hand off the coordinated change rather than silently combining migrations.
 
 ## Validation model
 

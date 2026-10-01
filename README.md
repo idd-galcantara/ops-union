@@ -127,7 +127,7 @@ codigo-fonte, use `npm run dev:desktop`.
 
 ## Requisitos
 
-- **Node.js v25.2.1**, versao usada e validada neste ambiente, com npm.
+- **Node.js v26.10.0** com npm **11.6.2**, versoes usadas e validadas neste ambiente.
 - Acesso aos clusters que serao consultados.
 - Um kubeconfig valido no caminho padrao do cliente Kubernetes, normalmente `~/.kube/config`.
 - Permissao de leitura para namespaces, pods, eventos, workloads, HPAs, metricas e logs conforme o
@@ -140,8 +140,8 @@ O backend usa o nome do **contexto** do kubeconfig como identificador selecionav
 Para reproduzir a versao de Node.js usada no desenvolvimento:
 
 ```bash
-nvm install 25.2.1
-nvm use 25.2.1
+nvm install 26.10.0
+nvm use 26.10.0
 ```
 
 ## Ambiente Kubernetes local

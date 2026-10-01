@@ -235,6 +235,21 @@ Additional v1.10.1 runtime and delivery evidence:
 - Windows/macOS packaging, installer/archive inspection, signing/notarization, and live GitHub
   Actions execution -> unavailable on this Linux host; the workflow was source-reviewed only.
 
+Additional v1.13.0 Node runtime migration evidence:
+
+- Target runtime probe -> Node `v26.10.0` with npm `11.6.2`; Electron remains `44.5.1` and
+  electron-builder remains `26.15.3`.
+- `npm ci --ignore-scripts` under the target runtime -> clean install passed with `0 vulnerabilities`.
+- Target-runtime typechecks, backend tests, frontend tests, root build, and
+  `npm audit --omit=dev` -> passed; backend `104/104`, frontend `148/148`, audit `0 vulnerabilities`.
+- `node scripts/prepare-desktop-runtime.mjs` and `node scripts/inspect-package.mjs` under Node 26
+  -> staging and five-root package inspection passed.
+- `npm run package:linux` under Node 26 -> Linux AppImage and `.deb` packaging passed without
+  publication. No Kubernetes request, secret access, Electron major change, or API boundary change
+  was introduced.
+- Windows/macOS package execution, signing/notarization, and live GitHub Actions execution remain
+  unavailable on this Linux host; they are not claimed as passed.
+
 No live Kubernetes request, kubeconfig inspection, release upload, commit, or publication was
 performed. The accepted-risk runtime and platform limitations must be completed before a signed
 cross-platform release claim.
