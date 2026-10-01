@@ -84,7 +84,7 @@ test('history acquisition is finite, follow=false, indexed, and windowed by sour
   assert.equal(index[1].lineNumber, 1);
   assert.equal(index[1].timestamp, null);
   assert.equal(index[1].byteOffset, Buffer.byteLength(`${JSON.stringify((window as { records: HistoryRecord[] }).records[0])}\n`, 'utf8'));
-  assert.equal(statSync(path.join(root, sessionDirectory!)).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') assert.equal(statSync(path.join(root, sessionDirectory!)).mode & 0o777, 0o700);
   manager.close();
   rmSync(root, { recursive: true, force: true });
 });
