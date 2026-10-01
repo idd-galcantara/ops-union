@@ -3,10 +3,19 @@
 These tasks authorize the approved Electron migration only. They do not authorize release
 publication, Kubernetes mutation, or unrelated dependency/toolchain upgrades.
 
+## Final disposition
+
+**Status: Deferred.** The task is closed for the current release cycle because Electron `44.5.1`
+is already the latest stable version available and `45.0.0-alpha.13` is not an approved production
+target. No migration implementation, validation, or release work is authorized under this spec.
+
+Reopen this spec when a stable Electron major newer than `44.5.1` is available. At that point,
+refresh the compatibility matrix and resume the checklist from `1.12.0-ELEC-1`.
+
 ## Phase 1 - Baseline and target
 
 - [ ] 1.12.0-ELEC-1 Freeze the Electron compatibility matrix.
-  - Record current Electron `44.4.0`, electron-builder `26.15.3`, Node/npm, TypeScript, native
+  - Record current Electron `44.5.1`, electron-builder `26.15.3`, Node/npm, TypeScript, native
     modules, platform hosts, and candidate target versions.
   - Review authoritative Electron and builder breaking changes and select the exact target.
   - Decide whether Node migration is a prerequisite and record the dependency on v1.13.0.
@@ -15,6 +24,12 @@ publication, Kubernetes mutation, or unrelated dependency/toolchain upgrades.
   - _Requirements: ELEC-BASE.1-ELEC-BASE.4, ELEC-001.1-ELEC-001.3
   - _Validation: current graph/audit baseline and approved compatibility matrix.
   - _Definition of done: exact target, rollback, affected boundaries, and gates are frozen.
+  - _Evidence: After v1.11.0, `npm view electron version engines --json` returned Electron
+    `44.5.1` with Node `>=22.12.0`; `npm view electron-builder version engines --json` returned
+    `26.15.3` with Node `>=14.0.0`. `npm outdated` has no newer wanted Electron version and
+    `npm view electron@45` returned `E404`; the only 45 line currently published is the
+    pre-release `45.0.0-alpha.13`. The user decision is to await a stable major; the task remains
+    pending and no Electron migration files were changed.
 
 ## Phase 2 - Migration implementation
 

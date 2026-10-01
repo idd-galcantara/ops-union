@@ -2,7 +2,7 @@
 
 ## Release intent
 
-v1.12.0 upgrades the Electron desktop runtime from the current `44.4.0` baseline only after a
+v1.12.0 upgrades the Electron desktop runtime from the current `44.5.1` baseline only after a
 compatibility matrix approves the target. The sequence is:
 
 ```text
@@ -17,6 +17,8 @@ current desktop/runtime baseline
 If the target depends on a Node runtime change, implementation pauses and hands that work to
 `1.13.0-node-runtime-migration` before continuing.
 
+The current decision is to defer the migration until a stable Electron major newer than `44.5.1`
+is available. The published `45.0.0-alpha.13` pre-release is not used as a production target.
 ## Ownership boundaries
 
 - `@ops-union-version-migration` owns the target matrix, migration sequence, and coordinated

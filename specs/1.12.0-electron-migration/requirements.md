@@ -2,12 +2,17 @@
 
 ## Status and scope
 
-Version 1.12.0 is a coordinated Electron desktop-runtime migration. The current baseline is
-Electron `44.4.0` in `desktop/package.json`, with `electron-builder` `26.15.3` at the root. The
-target Electron line SHALL be selected and frozen by the compatibility-matrix task before any
-manifest or source edit; it SHALL be compatible with the supported Node runtime and packaging
-platforms.
+Version 1.12.0 is a coordinated Electron desktop-runtime migration. The post-v1.11.0 baseline is
+Electron `44.5.1` in `desktop/package.json`, with `electron-builder` `26.15.3` at the root and
+Node.js `25.2.1`/npm `11.6.2` in the release environment. The target Electron line SHALL be
+selected and frozen by the compatibility-matrix task before any manifest or source edit; it SHALL
+be compatible with the supported Node runtime and packaging platforms. The current registry query
+returned Electron `44.5.1` as latest and no `electron@45` package, so implementation remains
+blocked until a valid target is approved.
 
+**Decision record (2026-10-01):** The available Electron `45.0.0-alpha.13` is a pre-release and
+is not an approved production migration target. The project will wait for a stable major release
+newer than `44.5.1`; no implementation work is authorized until then.
 The migration covers desktop main/preload behavior, renderer handoff, native/runtime packaging,
 tests, CI, and current documentation. It preserves the loopback-only, single-user, read-only
 Kubernetes product boundary.
