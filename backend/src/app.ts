@@ -41,7 +41,7 @@ export function createApp(options: { frontendDist?: string; internalToken?: stri
 
   if (options.frontendDist) {
     app.use(express.static(options.frontendDist));
-    app.get('*', (req: Request, res: Response, next) => {
+    app.get('/{*splat}', (req: Request, res: Response, next) => {
       if (req.path.startsWith('/api/')) {
         next();
         return;
