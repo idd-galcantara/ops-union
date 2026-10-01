@@ -27,5 +27,6 @@ does not call `gh pr merge`.
 - `contents: write` permits the squash merge and source-branch deletion after GitHub approves it.
 - No checkout, package installation, secret access, or Kubernetes operation occurs in this job.
 
-Repository-level `allow_auto_merge` must be enabled. Branch protection and required reviews, when
-configured by repository owners, remain authoritative and can still hold the auto-merge request.
+Repository-level `allow_auto_merge` is enabled. The `main` branch requires both named checks, so
+GitHub remains the final merge authority. Required reviews, if added later, also remain
+authoritative and can hold the auto-merge request.

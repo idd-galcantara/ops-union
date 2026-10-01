@@ -13,7 +13,8 @@ contents remain unchanged. No dependency is upgraded by this specification.
 
 ### MERGE-BASE - Preserve review and security boundaries
 
-1. Auto-merge SHALL apply only to PRs authored by `dependabot[bot]`.
+1. Auto-merge SHALL apply only to PRs authored by the Dependabot bot identity (`dependabot[bot]`
+	or the GitHub API's `app/dependabot` login).
 2. The workflow SHALL not check out or execute code from the pull request branch.
 3. A failed, cancelled, pending, or missing check SHALL prevent auto-merge from being requested.
 
@@ -34,6 +35,10 @@ for merge; an eligible PR receives native auto-merge.
 1. Auto-merge SHALL use squash merge and delete the source branch after merge.
 2. The workflow SHALL not bypass repository review or status-check rules.
 3. A human may still disable auto-merge or close the PR before GitHub merges it.
+
+The `main` branch requires `Validate pull request` and `Review dependency changes` as status
+checks. The checks need not be rerun solely because `main` advanced after the current PR head was
+validated; the workflow independently verifies the current head SHA before requesting auto-merge.
 
 **Acceptance criteria:** The workflow calls `gh pr merge --auto --squash --delete-branch` and does
 not force, administratively merge, or alter failed PRs.
