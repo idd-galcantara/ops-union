@@ -58,7 +58,8 @@ evidencias verificadas, limitacoes da revisao e recomendacoes de acompanhamento.
 
 A esteira valida o contrato Node.js/npm, a arvore de dependencias, o lockfile e advisories antes de
 empacotar. Vulnerabilidades altas ou criticas bloqueiam o pipeline; dependencias desatualizadas sao
-reportadas para manutencao. Mudancas de dependencias em pull requests passam por Dependency Review.
+reportadas para manutencao. Pull requests passam pela mesma validacao completa, sem empacotamento;
+mudancas de dependencias e de GitHub Actions tambem passam por Dependency Review.
 
 ## Visao geral
 

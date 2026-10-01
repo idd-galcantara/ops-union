@@ -26,7 +26,8 @@ e npm contra `package.json`, verifica a arvore de workspaces, informa dependenci
 executa auditorias de producao e da arvore completa com bloqueio para severidade alta ou critica,
 e roda typecheck, testes e build. Os jobs Linux, Windows e macOS so iniciam depois desse gate.
 Pull requests que alteram manifests ou o lockfile tambem passam por Dependency Review; Dependabot
-acompanha npm e GitHub Actions.
+acompanha npm e GitHub Actions. Toda pull request tambem executa a validacao completa de runtime,
+dependencias, auditoria, typecheck, testes e build; essa workflow nao empacota nem publica artefatos.
 
 ## Versionamento semantico
 

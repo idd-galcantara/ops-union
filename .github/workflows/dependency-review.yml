@@ -9,6 +9,8 @@ on:
       - frontend/package.json
       - desktop/package.json
       - .github/workflows/dependency-review.yml
+      - .github/workflows/**
+      - .github/dependabot.yml
 
 permissions:
   contents: read
