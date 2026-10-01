@@ -3,7 +3,7 @@ name: ops-union-release
 description: "Release and delivery owner for ops-union. Use when preparing a version, committing and pushing approved code to main, creating release tags, monitoring GitHub Actions packaging, or publishing the automated GitHub Release."
 argument-hint: "Describe what should be delivered, the target version, or the release/push action to perform"
 tools: [read, search, execute, edit, agent, todo]
-agents: [ops-union-specs, ops-union-backend, ops-union-frontend, ops-union-integration-qa]
+agents: [ops-union-specs, ops-union-backend, ops-union-frontend, ops-union-integration-qa, ops-union-dependency-security, ops-union-version-migration]
 user-invocable: true
 ---
 
@@ -62,7 +62,11 @@ GitHub Actions workflow that creates the GitHub Release.
 ## Delegation map
 
 - `@ops-union-specs`: missing or stale requirements, design, task ownership, or release checklist.
-- `@ops-union-backend`: backend, desktop process, dependency, packaging runtime, or API changes.
+- `@ops-union-backend`: backend, desktop process, packaging runtime, or API changes.
+- `@ops-union-dependency-security`: release dependency baseline, advisory status, and lockfile
+  evidence before delivery.
+- `@ops-union-version-migration`: runtime or toolchain version changes that need migration work
+  before release preparation.
 - `@ops-union-frontend`: frontend implementation and UI regression checks.
 - `@ops-union-integration-qa`: end-to-end, packaging, security, read-only, and release validation.
 

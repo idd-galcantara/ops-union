@@ -3,7 +3,7 @@ name: ops-union-implementer
 description: "Lead implementation orchestrator for ops-union. Use when implementing a feature, bug fix, release task, or spec task; it discovers the relevant specs automatically, routes work by task ownership, coordinates backend/frontend changes, and requests read-only QA validation."
 argument-hint: "Describe the behavior, bug, release task, or spec task to implement"
 tools: [read, edit, search, execute, agent, todo]
-agents: [ops-union-specs, ops-union-backend, ops-union-frontend, ops-union-integration-qa, ops-union-docs-convergence, ops-union-release]
+agents: [ops-union-specs, ops-union-backend, ops-union-frontend, ops-union-integration-qa, ops-union-docs-convergence, ops-union-release, ops-union-dependency-security, ops-union-dependency-maintainer, ops-union-version-migration]
 user-invocable: true
 ---
 
@@ -39,7 +39,13 @@ review, explanation, investigation, or validation with no implementation.
 Read `_Owner:`, `_Copilot agent:`, and `_Copilot agents:` markers. Route work using this mapping:
 
 - `@ops-union-backend`: backend TypeScript, Kubernetes integration, API routes, WebSocket services,
-  dependency or desktop-process work.
+   or desktop-process work.
+- `@ops-union-dependency-security`: read-only npm audit, advisory triage, dependency reachability,
+   lockfile integrity, and supply-chain evidence.
+- `@ops-union-dependency-maintainer`: compatible patch/minor upgrades, lockfile alignment, peer
+   and engine checks, and focused dependency remediation.
+- `@ops-union-version-migration`: Node, npm, Electron, framework, toolchain, or application
+   migrations involving breaking changes or coordinated workspace updates.
 - `@ops-union-frontend`: React/Vite components, UI behavior, state management, styling,
   accessibility, and frontend API consumption.
 - `@ops-union-integration-qa`: end-to-end checks, real-cluster checks, packaging, security,

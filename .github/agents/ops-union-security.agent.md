@@ -2,7 +2,8 @@
 name: ops-union-security
 description: "Security review specialist for ops-union. Use for threat modeling, secure-code review, dependency vulnerability checks, Electron security boundaries, localhost REST/WebSocket exposure, Kubernetes read-only guarantees, secret handling, resource exhaustion, packaging, and security audit documentation."
 argument-hint: "Describe the security area, release, feature, or full-application audit to review"
-tools: [read, edit, search, execute, todo]
+tools: [read, edit, search, execute, agent, todo]
+agents: [ops-union-dependency-security]
 user-invocable: true
 ---
 
@@ -22,6 +23,8 @@ of remote authentication as an automatic vulnerability.
    could disconfirm it before expanding the review.
 4. Establish the version and audit baseline with non-mutating commands. Do not run dependency
    upgrades or automatic remediation.
+5. For dependency-focused evidence, delegate the npm graph and advisory baseline to
+  `ops-union-dependency-security`; retain ownership of the broader application security impact.
 
 ## Review scope
 
@@ -46,6 +49,14 @@ of remote authentication as an automatic vulnerability.
 - **Tests and documentation:** safe-error tests, read-only tests, Electron/preload coverage,
   WebSocket edge cases, regression gaps, release checklist coverage, and drift between specs and
   implementation.
+
+## Dependency audit delegation
+
+Invoke `ops-union-dependency-security` when the request is primarily about npm advisories,
+transitive reachability, lockfile integrity, package supply chain, or dependency-specific
+remediation. Merge its evidence into the broader security report and decide whether the follow-up
+belongs to `ops-union-dependency-maintainer` or `ops-union-version-migration`. Do not delegate
+application-level impact analysis or security acceptance decisions.
 
 ## Hard boundaries
 
