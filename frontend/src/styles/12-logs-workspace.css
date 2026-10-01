@@ -1,0 +1,257 @@
+/* ---------- Dedicated logs workspace ---------- */
+
+.main-panel.is-log-workspace {
+  min-width: 0;
+  min-height: 0;
+}
+
+.log-workspace-header {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, 1.2fr) auto auto;
+  align-items: center;
+  gap: 10px 18px;
+  padding: 12px 18px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+}
+
+.log-workspace-identity,
+.log-workspace-contexts {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.log-workspace-identity h2 {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 17px;
+  letter-spacing: -0.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-workspace-identity > span:last-child,
+.log-workspace-contexts > div,
+.log-workspace-contexts > div span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font: 9px var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-workspace-contexts > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 10px;
+}
+
+.log-workspace-stats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px 10px;
+  color: var(--muted);
+  font: 9px var(--mono);
+  white-space: nowrap;
+}
+
+.log-workspace-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.log-workspace-status .status-dot {
+  width: 6px;
+  height: 6px;
+  background: currentColor;
+}
+
+.log-workspace-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.log-source-inspection {
+  flex: 0 0 auto;
+  color: var(--text-soft);
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--line);
+  font: 9px var(--mono);
+}
+
+.log-source-inspection summary {
+  padding: 7px 14px;
+  color: var(--muted);
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.log-source-inspection summary:focus-visible {
+  outline: 2px solid rgba(223, 112, 69, 0.55);
+  outline-offset: -2px;
+}
+
+.log-source-inspection-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 4px 12px;
+  max-height: 150px;
+  overflow: auto;
+  padding: 0 14px 9px;
+}
+
+.log-source-inspection-list span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-output {
+  min-width: 0;
+}
+
+.log-output-inner {
+  position: relative;
+  min-width: 0;
+}
+
+.structured-log-line {
+  display: grid;
+  grid-template-columns: minmax(128px, 240px) minmax(0, 1fr);
+  align-items: start;
+  min-height: 34px;
+  padding: 7px 0;
+  gap: 10px;
+}
+
+.structured-log-line > * {
+  min-width: 0;
+}
+
+.log-timestamp,
+.log-context-cell,
+.log-source-cell {
+  overflow: hidden;
+  color: #91a0b4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-timestamp {
+  color: #75859c;
+}
+
+.log-source-cell {
+  display: grid;
+  gap: 2px;
+}
+
+.log-source-cell strong {
+  overflow: hidden;
+  color: #f1b08e;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-source-cell small {
+  overflow: hidden;
+  color: #91a0b4;
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-message {
+  min-width: 0;
+  color: #e6ebf2;
+  user-select: text;
+}
+
+.log-output-inner.is-nowrap .log-message {
+  overflow: visible;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.log-output-inner.is-wrapped .log-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.log-output-inner.is-nowrap .structured-log-line {
+  white-space: nowrap;
+}
+
+.log-output-inner.is-wrapped .structured-log-line {
+  white-space: normal;
+}
+
+.log-empty {
+  min-width: 0;
+}
+
+@media (max-width: 1000px) {
+  .app-body:has(.is-log-workspace) {
+    height: calc(100vh - 66px);
+    min-height: 0;
+    overflow: hidden;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .app-shell:has(.is-log-workspace) {
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .app-body:has(.is-log-workspace) > .sidebar {
+    display: none;
+  }
+
+  .app-body:has(.is-log-workspace) .main-panel {
+    min-height: 0;
+  }
+
+  .app-body:has(.is-log-workspace) .log-output {
+    max-height: none;
+  }
+
+  .log-workspace-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .log-workspace-contexts,
+  .log-workspace-stats {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+
+  .log-workspace-actions {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+@media (max-width: 560px) {
+  .log-workspace-header {
+    padding: 10px 12px;
+    gap: 8px 10px;
+  }
+
+  .log-workspace-actions .secondary-button {
+    min-height: 28px;
+    padding: 0 8px;
+  }
+
+  .structured-log-line {
+    grid-template-columns: minmax(112px, 38%) minmax(0, 1fr);
+    gap: 8px;
+  }
+}

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import { ArrowRight, Bookmark, Layers, Moon, Search, Sun, Workflow } from 'lucide-react';
 import { EmptyState, ErrorState } from './components/Feedback';
 import { ApplicationLogSourceModal } from './components/ApplicationLogSourceModal';
@@ -7,18 +7,19 @@ import { PodDetailsPanel } from './components/PodDetailsPanel';
 import { PodTable, podRowKey } from './components/PodTable';
 import { TargetErrorBanner } from './components/TargetErrorBanner';
 import { TargetSelector, WorkspaceControls } from './components/TargetSelector';
-import { ViewToolbar, type ApplicationFilterOption } from './components/ViewToolbar';
+import { ViewToolbar } from './components/ViewToolbar';
 import { getQuickPresets } from './launchpad';
-import { matchesFilter } from './podPresentation';
+import { useAutoRefresh } from './useAutoRefresh';
+import { useHealthStatus } from './useHealthStatus';
+import { useLogSourceController } from './useLogSourceController';
+import { usePodSelectionController } from './usePodSelectionController';
+import { usePodViewData } from './podViewModel';
 import { applyPresetAndLoad } from './presetFlow';
 import { describePreset } from './presets';
 import { useOpsFlowStore } from './store';
 import { useResizablePanel } from './useResizablePanel';
-import { buildApplicationLogInventory, inventorySourceKey, selectionToLogSources } from './logSourceInventory';
-import { hasSingleApplicationKey } from './logSourceModal';
-import type { ApplicationLogInventory, InventoryIssue, LogSource, LogSourceSelection, NormalizedPod, PodRef, Target } from './types';
-
-type HealthState = 'loading' | 'ok' | 'error';
+import type { NormalizedPod } from './types';
+import { useThemeController } from './useThemeController';
 
 const DETAILS_MIN = 320;
 const DETAILS_MAX = 900;
@@ -26,73 +27,14 @@ const DETAILS_DEFAULT = 420;
 const SIDEBAR_MIN = 240;
 const SIDEBAR_MAX = 520;
 const SIDEBAR_DEFAULT = 292;
-const THEME_STORAGE_KEY = 'ops-union.theme.v1';
-
-type Theme = 'light' | 'dark';
-
-interface LogModalState {
-  inventory: ApplicationLogInventory;
-  originatingContext: Pick<Target, 'cluster' | 'namespace'>;
-  initialSelectedKeys?: string[];
-}
-
-function readStoredTheme(): Theme {
-  try {
-    return window.localStorage.getItem(THEME_STORAGE_KEY) === 'dark' ? 'dark' : 'light';
-  } catch {
-    return 'light';
-  }
-}
-
 export default function App() {
-  const [health, setHealth] = useState<HealthState>('loading');
-  const [selected, setSelected] = useState<PodRef | null>(null);
-  const [selectedLogPods, setSelectedLogPods] = useState<PodRef[]>([]);
+  const health = useHealthStatus();
+  const { theme, themeReady, toggleTheme } = useThemeController();
+  const selection = usePodSelectionController();
   const [selectedApplications, setSelectedApplications] = useState<string[]>([]);
-  const [logSources, setLogSources] = useState<LogSource[]>([]);
-  const [logConsultedContexts, setLogConsultedContexts] = useState<Target[]>([]);
-  const [logModal, setLogModal] = useState<LogModalState | null>(null);
-  const [detailsInitialTab, setDetailsInitialTab] = useState<'describe' | 'metrics' | 'logs'>('describe');
-  const [theme, setTheme] = useState<Theme>(readStoredTheme);
-  const [themeReady, setThemeReady] = useState(() => !Boolean(window.opsFlowDesktop));
   const [presetLibraryRequest, setPresetLibraryRequest] = useState(0);
   const [viewResetRequest, setViewResetRequest] = useState(0);
   const [quickPresetId, setQuickPresetId] = useState<string | null>(null);
-
-  useEffect(() => {
-    const desktop = window.opsFlowDesktop;
-    if (!desktop) {
-      setThemeReady(true);
-      return;
-    }
-
-    let active = true;
-    void desktop.loadTheme()
-      .then((storedTheme) => {
-        if (active && storedTheme) setTheme(storedTheme);
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        if (active) setThemeReady(true);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!themeReady) return;
-    try {
-      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-    } catch {
-      // Storage can be unavailable in restricted browser profiles.
-    }
-
-    if (window.opsFlowDesktop) {
-      void window.opsFlowDesktop.saveTheme(theme).catch(() => undefined);
-    }
-  }, [theme, themeReady]);
 
   const sidebar = useResizablePanel({
     storageKey: 'ops-union.sidebarWidth.v1',
@@ -108,21 +50,6 @@ export default function App() {
     min: DETAILS_MIN,
     max: DETAILS_MAX,
   });
-
-  const openPod = (pod: NormalizedPod) => {
-    setSelected({
-      cluster: pod.cluster,
-      namespace: pod.namespace,
-      name: pod.name,
-      containers: pod.containers,
-      application: pod.application,
-    });
-    setSelectedLogPods([]);
-    setLogSources([]);
-    setLogConsultedContexts([]);
-    setLogModal(null);
-    setDetailsInitialTab('describe');
-  };
 
   const targets = useOpsFlowStore((s) => s.targets);
   const pods = useOpsFlowStore((s) => s.pods);
@@ -145,60 +72,7 @@ export default function App() {
   const setRefreshSeconds = useOpsFlowStore((s) => s.setRefreshSeconds);
   const lastUpdatedAt = useOpsFlowStore((s) => s.lastUpdatedAt);
   const hydratePresets = useOpsFlowStore((s) => s.hydratePresets);
-  const openLogModalFromPods = (sourcePods: NormalizedPod[], preserveCurrent = false) => {
-    const first = sourcePods[0];
-    if (!first) return;
-    if (!hasSingleApplicationKey(sourcePods)) return;
-    const issues: InventoryIssue[] = targetErrors.map((item) => ({
-      cluster: item.target.cluster,
-      namespace: item.target.namespace,
-      message: item.message,
-    }));
-    const inventory = buildApplicationLogInventory(pods, first.application, issues, lastUpdatedAt, targets);
-    const currentKeys = preserveCurrent && logSources.length > 0 && logSources[0].application?.key === first.application.key
-      ? logSources.map(inventorySourceKey)
-      : undefined;
-    setSelected({ cluster: first.cluster, namespace: first.namespace, name: first.name, containers: first.containers, application: first.application });
-    setSelectedLogPods(sourcePods.map((pod) => ({ cluster: pod.cluster, namespace: pod.namespace, name: pod.name, containers: pod.containers, application: pod.application })));
-    setLogModal({ inventory, originatingContext: { cluster: first.cluster, namespace: first.namespace }, initialSelectedKeys: currentKeys });
-  };
-
-  const openCurrentLogSources = () => {
-    const sourcePods = selectedLogPods.length > 0
-      ? pods.filter((item) => selectedLogPods.some((ref) => ref.cluster === item.cluster && ref.namespace === item.namespace && ref.name === item.name))
-      : [pods.find((item) => item.cluster === selected?.cluster && item.namespace === selected?.namespace && item.name === selected?.name)].filter((item): item is NormalizedPod => Boolean(item));
-    openLogModalFromPods(sourcePods, true);
-  };
-
-  const closeLogWorkspace = () => {
-    setLogSources([]);
-    setDetailsInitialTab('describe');
-  };
-
-  const confirmLogSources = (selection: LogSourceSelection[]) => {
-    const confirmed = selectionToLogSources(selection);
-    if (confirmed.length === 0) return;
-    setLogSources(confirmed);
-    setLogConsultedContexts(logModal?.inventory.consultedContexts ?? confirmed.map(({ cluster, namespace }) => ({ cluster, namespace })));
-    setSelectedLogPods(pods
-      .filter((pod) => confirmed.some((source) => source.cluster === pod.cluster && source.namespace === pod.namespace && source.pod === pod.name))
-      .map((pod) => ({ cluster: pod.cluster, namespace: pod.namespace, name: pod.name, containers: pod.containers, application: pod.application })));
-    setDetailsInitialTab('describe');
-    setLogModal(null);
-  };
-
   const openPresetLibrary = () => setPresetLibraryRequest((request) => request + 1);
-
-  const resetView = () => {
-    clearTargets();
-    setSelected(null);
-    setSelectedLogPods([]);
-    setLogSources([]);
-    setLogConsultedContexts([]);
-    setLogModal(null);
-    setQuickPresetId(null);
-    setViewResetRequest((request) => request + 1);
-  };
 
   const applyQuickPreset = (id: string) => {
     if (quickPresetId || podsLoading) return;
@@ -214,80 +88,58 @@ export default function App() {
     void hydratePresets();
   }, [hydratePresets]);
 
+  const logController = useLogSourceController({
+    pods,
+    targets,
+    targetErrors,
+    lastUpdatedAt,
+    selected: selection.selected,
+    selectedLogPods: selection.selectedLogPods,
+    onSelectLogPods: selection.openLogPods,
+    onSetLogPods: selection.setLogPods,
+    onSetDetailsInitialTab: selection.setDetailsInitialTab,
+    podsLoading,
+    podsError,
+    refreshPods: () => void loadPods({ resetView: false }),
+  });
+
+  const openPod = (pod: NormalizedPod) => {
+    selection.openPod(pod);
+    logController.resetLogState();
+  };
+
+  const resetView = () => {
+    clearTargets();
+    selection.clearSelection();
+    logController.resetLogState();
+    setQuickPresetId(null);
+    setViewResetRequest((request) => request + 1);
+  };
+
   useLayoutEffect(() => {
     if (explicitQueryRevision === 0 && configurationRevision === 0) return;
-    setSelected(null);
-    setSelectedLogPods([]);
-    setLogSources([]);
-    setLogConsultedContexts([]);
-    setLogModal(null);
-    setDetailsInitialTab('describe');
+    selection.clearSelection();
+    logController.resetLogState();
     setFilter('');
     setSelectedApplications([]);
   }, [configurationRevision, explicitQueryRevision, setFilter]);
+  useAutoRefresh({ refreshSeconds, targetCount: targets.length, refresh: loadPods });
+  const { applicationOptions, visiblePods, clusterCount, namespaceCount } = usePodViewData(pods, filter, selectedApplications);
 
-  useEffect(() => {
-    if (!logModal || !lastUpdatedAt || logModal.inventory.snapshotAt === lastUpdatedAt) return;
-    const application = logModal.inventory.application;
-    const issues: InventoryIssue[] = targetErrors.map((item) => ({
-      cluster: item.target.cluster,
-      namespace: item.target.namespace,
-      message: item.message,
-    }));
-    const inventory = buildApplicationLogInventory(pods, application, issues, lastUpdatedAt, targets);
-    setLogModal((current) => {
-      if (!current || current.inventory.application.key !== application.key) return current;
-      return { ...current, inventory };
-    });
-  }, [lastUpdatedAt, logModal, pods, targetErrors]);
-
-  // Auto-refresh: silent so the table keeps its content between ticks. Only runs
-  // while there are targets, and is torn down on interval change or unmount.
-  useEffect(() => {
-    if (refreshSeconds <= 0 || targets.length === 0) return;
-    const timer = setInterval(() => {
-      void loadPods({ silent: true });
-    }, refreshSeconds * 1000);
-    return () => clearInterval(timer);
-  }, [refreshSeconds, targets.length, loadPods]);
-
-  useEffect(() => {
-    let active = true;
-    fetch('/api/health')
-      .then((res) => {
-        if (!res.ok) throw new Error();
-        if (active) setHealth('ok');
-      })
-      .catch(() => {
-        if (active) setHealth('error');
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const applicationOptions = useMemo<ApplicationFilterOption[]>(() => {
-    const counts = new Map<string, ApplicationFilterOption>();
-    for (const pod of pods) {
-      const current = counts.get(pod.application.key);
-      if (current) {
-        current.podCount += 1;
-      } else {
-        counts.set(pod.application.key, { key: pod.application.key, name: pod.application.name, podCount: 1 });
-      }
-    }
-    return [...counts.values()].sort((a, b) => a.name.localeCompare(b.name) || a.key.localeCompare(b.key));
-  }, [pods]);
-
-  const visiblePods = useMemo(() => {
-    const selected = new Set(selectedApplications);
-    return pods.filter((pod) =>
-      (selected.size === 0 || selected.has(pod.application.key)) && matchesFilter(pod, filter),
-    );
-  }, [filter, pods, selectedApplications]);
-
-  const clusterCount = useMemo(() => new Set(pods.map((p) => p.cluster)).size, [pods]);
-  const namespaceCount = useMemo(() => new Set(pods.map((p) => p.namespace)).size, [pods]);
+  const { selected, selectedLogPods, detailsInitialTab } = selection;
+  const {
+    logSources,
+    logConsultedContexts,
+    logModal,
+    openCurrentLogSources,
+    closeLogWorkspace,
+    clearDetailsLogState,
+    confirmLogSources,
+    closeLogModal,
+    refreshInventory,
+    inventoryLoading,
+    inventoryError,
+  } = logController;
 
   return (
     <div className="app-shell" data-theme={theme}>
@@ -312,7 +164,7 @@ export default function App() {
           <button
             type="button"
             className={`theme-toggle ${theme === 'dark' ? 'is-dark' : ''}`}
-            onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
+            onClick={toggleTheme}
             disabled={!themeReady}
             aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
             aria-pressed={theme === 'dark'}
@@ -526,10 +378,8 @@ export default function App() {
             showLogsTab={logSources.length === 0}
             onOpenLogs={openCurrentLogSources}
             onClose={() => {
-              setSelected(null);
-              setSelectedLogPods([]);
-              setLogSources([]);
-              setLogConsultedContexts([]);
+              selection.clearSelection();
+              clearDetailsLogState();
             }}
             resizing={details.resizing}
             onResizeStart={details.startResize}
@@ -537,7 +387,7 @@ export default function App() {
           />
         )}
       </div>
-      {logModal && <ApplicationLogSourceModal inventory={logModal.inventory} originatingContext={logModal.originatingContext} initialSelectedKeys={logModal.initialSelectedKeys} loading={podsLoading} stale={Boolean(logModal.inventory.snapshotAt && lastUpdatedAt && lastUpdatedAt > logModal.inventory.snapshotAt)} error={podsError} onRefresh={() => void loadPods({ resetView: false })} onCancel={() => setLogModal(null)} onConfirm={confirmLogSources} />}
+      {logModal && <ApplicationLogSourceModal inventory={logModal.inventory} originatingContext={logModal.originatingContext} initialSelectedKeys={logModal.initialSelectedKeys} loading={inventoryLoading} stale={Boolean(logModal.inventory.snapshotAt && lastUpdatedAt && lastUpdatedAt > logModal.inventory.snapshotAt)} error={inventoryError} onRefresh={refreshInventory} onCancel={closeLogModal} onConfirm={confirmLogSources} />}
     </div>
   );
 }

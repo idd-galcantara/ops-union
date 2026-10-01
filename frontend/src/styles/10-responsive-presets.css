@@ -1,0 +1,75 @@
+@media (max-width: 520px) {
+  .workspace-modal-backdrop {
+    align-items: flex-end;
+    padding: 10px;
+  }
+
+  .workspace-modal {
+    max-height: calc(100vh - 20px);
+    padding: 16px;
+    border-radius: 8px;
+  }
+
+  .preset-library-backdrop {
+    align-items: flex-start;
+    padding: 10px;
+  }
+
+  .preset-library {
+    max-height: calc(100vh - 20px);
+    padding: 16px;
+  }
+
+  .preset-library-file-actions {
+    width: 100%;
+  }
+
+  .preset-batch-actions {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .preset-batch-transfer-actions,
+  .preset-batch-destructive-actions {
+    width: 100%;
+  }
+
+  .preset-batch-transfer-actions {
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .preset-batch-destructive-actions {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .preset-library-file-actions .secondary-button {
+    flex: 1 1 130px;
+  }
+
+  .preset-delete-all {
+    margin-left: auto;
+  }
+
+  .preset-dialog-layer {
+    align-items: flex-end;
+    padding: 10px;
+  }
+
+  .preset-secondary-dialog {
+    max-height: calc(100vh - 20px);
+  }
+
+  .preset-editor-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .preset-editor {
+    max-height: 92vh;
+    padding: 16px;
+    border-radius: 8px 8px 0 0;
+  }
+}

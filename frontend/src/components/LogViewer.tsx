@@ -1,51 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { LoaderCircle, Pause, Play, Search, Trash2, X } from 'lucide-react';
-import { aggregateLogsUrl, serializeHistoryCancel, serializeHistoryQueryStart, serializeHistoryQueryWindow, serializeHistoryStart, serializeHistoryWindow, serializeLogSubscription } from '../api';
+import { aggregateLogsUrl, serializeHistoryCancel, serializeHistoryStart } from '../api';
 import { LOG_PERIODS, resolveLogRange } from '../logsRange';
-import { cloneLogSearchValues, consumeLogSearchJumpRequest, createLogSearchActivation, createLogSearchJumpRequest, createLogSearchOperationSnapshot, DEFAULT_LOG_SEARCH_VALUES, logSearchOperationComplete, searchHasPendingChanges, shouldConsumeLogSearchJumpRequest, type LogSearchJumpRequest, type LogSearchOperationKind, type LogSearchOperationSnapshot, type LogSearchState } from '../logsSearch';
+import { consumeLogSearchJumpRequest, createLogSearchOperationSnapshot, logSearchOperationComplete, shouldConsumeLogSearchJumpRequest, type LogSearchState } from '../logsSearch';
 import { DEFAULT_LOG_DISPLAY_STATE, logRecordKey, setWrapLines, type LogGrouping } from '../logsPresentation';
-import { addHistoryQueryWindow, addHistoryWindow, appendBoundedEvent, CLIENT_LOG_BUFFER, createHistoryQueryWindowCache, createHistoryWindowCache, filterLogRecords, historyQueryRecordAt, historyRecordToEvent, HISTORY_WINDOW_LIMIT, historyRecordsFromCache, logFilterValues, sourceLabel, sourceStateForEvent, sourcesForPods, type HistoryQueryWindowCache, type HistoryQueryWindowRequest, type HistoryWindowCache, type HistoryWindowRequest, type LogRecordFilters } from '../logsSession';
+import { createLiveSessionController, type LiveAggregateLogEvent } from '../logsLiveSession';
+import { createHistoryController, type HistoryQueryRuntime, type HistoryQueryState, type HistoryRuntime } from '../logsHistoryController';
+import { useLogSearchController } from '../useLogSearchController';
+import { addHistoryQueryWindow, addHistoryWindow, CLIENT_LOG_BUFFER, createHistoryQueryWindowCache, createHistoryWindowCache, filterLogRecords, historyQueryRecordAt, historyRecordToEvent, HISTORY_WINDOW_LIMIT, historyRecordsFromCache, logFilterValues, sourceLabel, sourcesForPods, type HistoryQueryWindowCache, type HistoryQueryWindowRequest, type HistoryWindowCache, type HistoryWindowRequest, type LogRecordFilters } from '../logsSession';
 import { ErrorState } from './Feedback';
-import type { AggregateLogEvent, HistoryAggregateProgress, HistoryQueryFilters, HistorySessionIdentity, HistorySourceProgress, HistoryTerminalStatus, LogEventRecord, LogLimits, LogSource, LogSourceState, NormalizedPod, PodRef, SummaryReason, Target } from '../types';
+import type { AggregateLogEvent, HistoryAggregateProgress, HistoryQueryFilters, HistorySessionIdentity, HistorySourceProgress, LogEventRecord, LogLimits, LogSource, LogSourceState, NormalizedPod, PodRef, SummaryReason, Target } from '../types';
+import { emptyMessage, FilterSelect, formatBytes, formatRange, historyStatusLabel, LogRow, LogRowPlaceholder, stateLabel, type LogConnectionState, type LogHistoryStatus } from './LogViewerParts';
 
 const DEFAULT_LIMITS: LogLimits = { maxLinesPerSource: 2_000, maxBytesPerSource: 2 * 1024 * 1024, maxLinesTotal: 10_000, maxBytesTotal: 10 * 1024 * 1024 };
-type ConnectionState = 'validating' | 'connecting' | 'streaming' | 'paused' | 'ended' | 'partial' | 'error' | 'history-starting' | 'history-reading' | 'history-ready' | 'history-partial' | 'history-cancelled' | 'history-expired' | 'transitioning';
-
 interface HistoryViewState {
   identity?: HistorySessionIdentity;
-  status: 'starting' | 'reading' | HistoryTerminalStatus | 'transitioning' | 'transition-failed' | 'transitioned';
+  status: LogHistoryStatus;
   aggregate?: HistoryAggregateProgress;
   sources: HistorySourceProgress[];
   limitReasons: string[];
 }
-
-interface HistoryRuntime {
-  identity?: HistorySessionIdentity;
-  requested: Set<string>;
-  pending: Map<string, HistoryWindowRequest>;
-  sourceProgress: HistorySourceProgress[];
-  terminal: boolean;
-}
-
-interface HistoryQueryState {
-  identity: HistorySessionIdentity;
-  queryId: string;
-  totalMatches: number;
-}
-
-interface HistoryQueryRuntime {
-  queryId?: string;
-  retiredQueryIds: Set<string>;
-  requested: Set<string>;
-  pending: Map<string, HistoryQueryWindowRequest>;
-}
-
-interface SearchOperationState {
-  kind: LogSearchOperationKind;
-  snapshot: LogSearchOperationSnapshot;
-}
-
 interface LogViewerProps {
   pod: PodRef;
   pods?: PodRef[];
@@ -59,14 +34,11 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
   const fallbackPods = useMemo(() => [pod], [pod]);
   const logPods = pods ?? fallbackPods;
   const availableSources = useMemo(() => sources ?? sourcesForPods(logPods.map((item): NormalizedPod => ({ cluster: item.cluster, namespace: item.namespace, name: item.name, status: '', ready: '', restarts: 0, node: '', imageTag: '', ageSeconds: 0, containers: item.containers, application: item.application ?? { key: `pod:${item.name}`, name: item.name, source: 'pod' } }))), [logPods, sources]);
-  const [search, setSearch] = useState<LogSearchState>(() => ({ draft: cloneLogSearchValues(DEFAULT_LOG_SEARCH_VALUES), applied: cloneLogSearchValues(DEFAULT_LOG_SEARCH_VALUES) }));
   const [display, setDisplay] = useState(DEFAULT_LOG_DISPLAY_STATE);
   const [events, setEvents] = useState<LogEventRecord[]>([]);
   const [sourceStates, setSourceStates] = useState<Map<string, LogSourceState>>(new Map());
-  const [state, setState] = useState<ConnectionState>('validating');
+  const [state, setState] = useState<LogConnectionState>('validating');
   const [error, setError] = useState<string>();
-  const [validationError, setValidationError] = useState<string>();
-  const [searchOperation, setSearchOperation] = useState<SearchOperationState>();
   const [summaryReason, setSummaryReason] = useState<SummaryReason | undefined>(undefined);
   const [acceptedLimits, setAcceptedLimits] = useState(DEFAULT_LIMITS);
   const [historyState, setHistoryState] = useState<HistoryViewState>();
@@ -77,16 +49,16 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
   const [historyWindowError, setHistoryWindowError] = useState<string>();
   const [historyWindowRetryRequests, setHistoryWindowRetryRequests] = useState<HistoryWindowRequest[]>([]);
   const [historyQueryRetryRequests, setHistoryQueryRetryRequests] = useState<HistoryQueryWindowRequest[]>([]);
-  const [sessionAttempt, setSessionAttempt] = useState(0);
   const [paused, setPaused] = useState(false);
   const [receivedWhilePaused, setReceivedWhilePaused] = useState(0);
   const [autoScroll, setAutoScroll] = useState(true);
-  const { draft, applied } = search;
   const outputRef = useRef<HTMLDivElement>(null);
+  const eventsRef = useRef(events);
   const summaryRef = useRef<SummaryReason | undefined>(undefined);
   const pausedRef = useRef(paused);
   const acceptedLimitsRef = useRef(acceptedLimits);
   pausedRef.current = paused;
+  eventsRef.current = events;
   acceptedLimitsRef.current = acceptedLimits;
   const sourceStatesRef = useRef(sourceStates);
   sourceStatesRef.current = sourceStates;
@@ -99,23 +71,40 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
   const historyQueryVisibleRangeRef = useRef<{ firstIndex: number; lastIndex: number } | undefined>(undefined);
   const historyQueryReadyRequestRef = useRef<number | undefined>(undefined);
   const liveSessionAcceptedRef = useRef(false);
-  const searchJumpRequestRef = useRef<LogSearchJumpRequest | undefined>(undefined);
   const jumpToLatestRef = useRef<(() => void) | undefined>(undefined);
   const requestGenerationRef = useRef(0);
   const requestIdRef = useRef(0);
-  const searchOperationIdRef = useRef(0);
-  const searchOperationRef = useRef<SearchOperationState | undefined>(undefined);
-  const transitioningFromHistoryRef = useRef(false);
   const historyTailPendingRef = useRef(false);
   const historyTailRevealRef = useRef(false);
   const selectedSources = availableSources;
-  const hasPendingSearch = searchHasPendingChanges(search);
+  const {
+    setSearch,
+    draft,
+    applied,
+    validationError,
+    setValidationError,
+    searchOperationRef,
+    searchOperationIdRef,
+    searchJumpRequestRef,
+    transitioningFromHistoryRef,
+    sessionAttempt,
+    hasPendingSearch,
+    isSearchApplying,
+    canTransitionToLive,
+    confirmSearch,
+    finishSearchOperation,
+    transitionToLive,
+    retryLiveTransition,
+  } = useLogSearchController({
+    sources: selectedSources,
+    historyStatus: historyState?.status === 'complete' || historyState?.status === 'partial' || historyState?.status === 'transition-failed' ? historyState.status : undefined,
+    onHistoryTransitionStatus: (status) => setHistoryState((current) => current ? { ...current, status } : current),
+  });
   const filterValues = useMemo(() => logFilterValues(selectedSources, events), [selectedSources, events]);
   const appliedCustomRange = useMemo(() => ({ from: applied.customFrom, to: applied.customTo }), [applied.customFrom, applied.customTo]);
   const appliedRangeResult = useMemo(() => resolveLogRange(applied.period, new Date(), appliedCustomRange), [applied.period, appliedCustomRange, sessionAttempt]);
   const visibleEvents = useMemo(() => filterLogRecords(events, applied.filters), [events, applied.filters]);
   const queryHistoryActive = applied.mode === 'history' && Boolean(historyQuery);
-  const isSearchApplying = Boolean(searchOperation);
   const virtualCount = queryHistoryActive ? historyQuery!.totalMatches : visibleEvents.length;
   const virtualCountRef = useRef(virtualCount);
   virtualCountRef.current = virtualCount;
@@ -134,17 +123,6 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
     },
     overscan: 10,
   });
-
-  const setSearchOperationState = (operation: SearchOperationState | undefined) => {
-    searchOperationRef.current = operation;
-    setSearchOperation(operation);
-  };
-  const finishSearchOperation = (requestId: number | undefined) => {
-    const current = searchOperationRef.current;
-    if (!current || current.snapshot.requestId !== requestId) return;
-    searchOperationRef.current = undefined;
-    setSearchOperation(undefined);
-  };
 
   useEffect(() => {
     const operation = searchOperationRef.current;
@@ -168,22 +146,10 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
       setHistoryQueryRetryRequests([]);
     }
     setSourceStates(new Map());
+    sourceStatesRef.current = new Map();
+    eventsRef.current = preserveHistoryBoundary ? events : [];
     setSummaryReason(undefined);
     summaryRef.current = undefined;
-    setError(operation ? undefined : appliedRangeResult.error);
-    setReceivedWhilePaused(0);
-    setAutoScroll(sessionValues.mode !== 'history' && !preserveHistoryBoundary);
-    setAcceptedLimits(DEFAULT_LIMITS);
-    historyRuntimeRef.current = { requested: new Set(), pending: new Map(), sourceProgress: [], terminal: false };
-    historyQueryRuntimeRef.current = { retiredQueryIds: new Set(), requested: new Set(), pending: new Map() };
-    historyQueryVisibleRangeRef.current = undefined;
-    historyRequestRef.current = undefined;
-    historyQueryRequestRef.current = undefined;
-    historyQueryStartRef.current = undefined;
-    liveSessionAcceptedRef.current = false;
-    historyQueryReadyRequestRef.current = undefined;
-    historyTailPendingRef.current = false;
-    historyTailRevealRef.current = false;
     if (!operation && appliedRangeResult.error) {
       setState('error');
       return;
@@ -197,75 +163,55 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
     const socket = new WebSocket(aggregateLogsUrl());
     historySocketRef.current = socket;
     setState(sessionValues.mode === 'history' ? 'history-starting' : preserveHistoryBoundary ? 'transitioning' : 'connecting');
-    const isCurrentHistoryEvent = (event: { sessionId: string; snapshotId: string; generation: number }) => {
-      const identity = historyRuntimeRef.current.identity;
-      return Boolean(identity && event.sessionId === identity.sessionId && event.snapshotId === identity.snapshotId && event.generation === identity.generation);
-    };
-    const requestHistoryWindow = (sourceKey: string, line: number, direction: 'forward' | 'backward' = 'forward') => {
-      const identity = historyRuntimeRef.current.identity;
-      if (!identity || socket.readyState !== WebSocket.OPEN) return;
-      const key = `${sourceKey}:${line}:${direction}`;
-      if (historyRuntimeRef.current.requested.has(key)) return;
-      historyRuntimeRef.current.requested.add(key);
-      historyRuntimeRef.current.pending.set(key, { sourceKey, line, direction });
-      socket.send(serializeHistoryWindow({ sessionId: identity.sessionId, generation: identity.generation, sourceKey, line, direction, limit: HISTORY_WINDOW_LIMIT }));
-    };
-    const requestHistoryQueryWindow = (request: HistoryQueryWindowRequest) => {
-      const identity = historyRuntimeRef.current.identity;
-      const queryId = historyQueryRuntimeRef.current.queryId;
-      if (!identity || !queryId || socket.readyState !== WebSocket.OPEN) return;
-      const key = `${queryId}:${request.offset}:${request.direction}`;
-      if (historyQueryRuntimeRef.current.requested.has(key)) return;
-      historyQueryRuntimeRef.current.requested.add(key);
-      historyQueryRuntimeRef.current.pending.set(key, request);
-      socket.send(serializeHistoryQueryWindow({ sessionId: identity.sessionId, generation: identity.generation, queryId, offset: request.offset, direction: request.direction, limit: HISTORY_WINDOW_LIMIT }));
-      setHistoryWindowLoading(true);
-    };
-    const startHistoryQuery = (filters: HistoryQueryFilters) => {
-      const identity = historyRuntimeRef.current.identity;
-      if (!identity || !historyRuntimeRef.current.terminal || socket.readyState !== WebSocket.OPEN) return;
-      historyQueryReadyRequestRef.current = undefined;
-      const previousQueryId = historyQueryRuntimeRef.current.queryId;
-      if (previousQueryId) historyQueryRuntimeRef.current.retiredQueryIds.add(previousQueryId);
-      historyQueryRuntimeRef.current.queryId = undefined;
-      historyQueryRuntimeRef.current.requested.clear();
-      historyQueryRuntimeRef.current.pending.clear();
-      setHistoryQuery(undefined);
-      setHistoryQueryCache(createHistoryQueryWindowCache());
-      setHistoryQueryRetryRequests([]);
-      setHistoryWindowError(undefined);
-      setHistoryWindowLoading(true);
-      socket.send(serializeHistoryQueryStart({ sessionId: identity.sessionId, generation: identity.generation, filters }));
-    };
-    const failPendingHistoryWindows = (message: string): boolean => {
-      if (historyRuntimeRef.current.pending.size === 0) return false;
-      const retryRequests = [...historyRuntimeRef.current.pending.values()];
-      historyRuntimeRef.current.pending.clear();
-      historyRuntimeRef.current.requested.clear();
-      setHistoryWindowRetryRequests(retryRequests);
-      setHistoryWindowError(message);
-      setHistoryWindowLoading(false);
-      return true;
-    };
-    const failPendingHistoryQueryWindows = (message: string): boolean => {
-      if (historyQueryRuntimeRef.current.pending.size === 0) return false;
-      const retryRequests = [...historyQueryRuntimeRef.current.pending.values()];
-      historyQueryRuntimeRef.current.pending.clear();
-      historyQueryRuntimeRef.current.requested.clear();
-      setHistoryQueryRetryRequests(retryRequests);
-      setHistoryWindowError(message);
-      setHistoryWindowLoading(false);
-      return true;
-    };
-    historyRequestRef.current = requestHistoryWindow;
-    historyQueryRequestRef.current = requestHistoryQueryWindow;
-    historyQueryStartRef.current = startHistoryQuery;
+    const historyController = createHistoryController({
+      socket,
+      historyRuntime: historyRuntimeRef.current,
+      historyQueryRuntime: historyQueryRuntimeRef.current,
+      setHistoryWindowLoading,
+      setHistoryWindowError,
+      setHistoryWindowRetryRequests,
+      setHistoryQueryRetryRequests,
+      setHistoryQuery,
+      setHistoryQueryCache,
+      resetHistoryQueryReadyRequest: () => { historyQueryReadyRequestRef.current = undefined; },
+    });
+    const { isCurrentEvent, requestWindow, requestQueryWindow, startQuery, failPendingWindows, failPendingQueryWindows } = historyController;
+    historyRequestRef.current = requestWindow;
+    historyQueryRequestRef.current = requestQueryWindow;
+    historyQueryStartRef.current = startQuery;
+    const liveSessionController = createLiveSessionController({
+      socket,
+      values: sessionValues,
+      range: sessionRange,
+      sources: sessionSources,
+      defaultLimits: DEFAULT_LIMITS,
+      operationId,
+      pausedRef,
+      eventsRef,
+      sourceStatesRef,
+      acceptedLimitsRef,
+      transitioningFromHistoryRef,
+      liveSessionAcceptedRef,
+      setEvents,
+      setSourceStates,
+      setAcceptedLimits,
+      setReceivedWhilePaused,
+      setSummaryReason: (reason) => { summaryRef.current = reason; setSummaryReason(reason); },
+      setState,
+      setError: (message) => setError(message),
+      finishSearchOperation,
+      acknowledgeTransition: () => {
+        setHistoryState((current) => current ? { ...current, status: 'transitioned' } : current);
+        eventsRef.current = [];
+        setEvents([]);
+      },
+    });
     socket.onopen = () => {
       if (!active) return;
       if (sessionValues.mode === 'history') {
         socket.send(serializeHistoryStart({ requestId: `history-${++requestIdRef.current}`, generation: ++requestGenerationRef.current, ...sessionRange, sources: sessionSources }));
       } else {
-        socket.send(serializeLogSubscription({ type: 'subscribe', period: sessionValues.period, follow: sessionValues.follow, ...sessionRange, sources: sessionSources, limits: DEFAULT_LIMITS }));
+        liveSessionController.subscribe();
       }
     };
     socket.onmessage = (message: MessageEvent<string>) => {
@@ -290,14 +236,14 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
           return;
         }
         if (event.type === 'history.progress') {
-          if (!isCurrentHistoryEvent(event)) return;
+          if (!isCurrentEvent(event)) return;
           historyRuntimeRef.current.sourceProgress = event.sources;
           setHistoryState((current) => current ? { ...current, status: 'reading', aggregate: event.aggregate, sources: event.sources } : current);
           setState('history-reading');
           return;
         }
         if (event.type === 'history.window') {
-          if (!isCurrentHistoryEvent(event)) return;
+          if (!isCurrentEvent(event)) return;
           const responseDirection = [...historyRuntimeRef.current.pending.values()].find((request) => request.sourceKey === event.sourceKey && (request.line === event.startLine || request.line === event.endLine))?.direction;
           if (responseDirection) {
             const responseLine = responseDirection === 'forward' ? event.startLine : event.endLine;
@@ -325,7 +271,7 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
           return;
         }
         if (event.type === 'history.query.ready') {
-          if (!isCurrentHistoryEvent(event) || historyQueryRuntimeRef.current.retiredQueryIds.has(event.queryId)) return;
+          if (!isCurrentEvent(event) || historyQueryRuntimeRef.current.retiredQueryIds.has(event.queryId)) return;
           if (historyQueryRuntimeRef.current.queryId && historyQueryRuntimeRef.current.queryId !== event.queryId) return;
           historyQueryRuntimeRef.current.queryId = event.queryId;
           historyQueryRuntimeRef.current.requested.clear();
@@ -342,7 +288,7 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
           return;
         }
         if (event.type === 'history.query.window') {
-          if (!isCurrentHistoryEvent(event) || historyQueryRuntimeRef.current.queryId !== event.queryId) return;
+          if (!isCurrentEvent(event) || historyQueryRuntimeRef.current.queryId !== event.queryId) return;
           const pendingEntry = [...historyQueryRuntimeRef.current.pending.entries()].find(([, request]) => request.offset === event.startIndex && request.direction === 'forward')
             ?? [...historyQueryRuntimeRef.current.pending.entries()].find(([, request]) => request.direction === 'forward' && request.offset < event.endIndex && request.offset >= event.startIndex);
           const responseKey = pendingEntry?.[0];
@@ -364,15 +310,15 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
           const visibleRange = historyQueryVisibleRangeRef.current;
           const requestedPageEnd = (responseRequest?.offset ?? event.startIndex) + HISTORY_WINDOW_LIMIT;
           if (event.hasMoreAfter && event.endIndex < requestedPageEnd && event.endIndex <= (visibleRange?.lastIndex ?? -1)) {
-            requestHistoryQueryWindow({ offset: event.endIndex, direction: 'forward' });
+            requestQueryWindow({ offset: event.endIndex, direction: 'forward' });
           }
           if (event.hasMoreAfter && event.endIndex < (visibleRange?.lastIndex ?? -1) && !historyQueryRuntimeRef.current.requested.has(`${event.queryId}:${event.endIndex}:forward`)) {
-            requestHistoryQueryWindow({ offset: event.endIndex, direction: 'forward' });
+            requestQueryWindow({ offset: event.endIndex, direction: 'forward' });
           }
           return;
         }
         if (event.type === 'history.terminal') {
-          if (!isCurrentHistoryEvent(event)) return;
+          if (!isCurrentEvent(event)) return;
           historyRuntimeRef.current.sourceProgress = event.sources;
           historyRuntimeRef.current.terminal = true;
           historyTerminalSeen = true;
@@ -382,65 +328,24 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
           setState(event.status === 'complete' ? 'history-ready' : event.status === 'cancelled' ? 'history-cancelled' : event.status === 'expired' ? 'history-expired' : 'history-partial');
           if (operationId !== undefined && ['failed', 'cancelled', 'expired'].includes(event.status)) finishSearchOperation(operationId);
           if (operationId !== undefined && operation?.kind === 'history' && logSearchOperationComplete(operation.kind, historyTerminalSeen, historyQueryReadySeen)) finishSearchOperation(operationId);
-          startHistoryQuery(sessionValues.filters);
+          startQuery(sessionValues.filters);
           return;
         }
         if (event.type === 'error') {
-          if (failPendingHistoryWindows(event.message)) return;
-          if (failPendingHistoryQueryWindows(event.message)) return;
+          if (failPendingWindows(event.message)) return;
+          if (failPendingQueryWindows(event.message)) return;
           setError(event.message);
           finishSearchOperation(operationId);
           setState('error');
         }
         return;
       }
-      if (event.type === 'accepted') {
-        setAcceptedLimits(event.limits);
-        liveSessionAcceptedRef.current = true;
-        finishSearchOperation(operationId);
-        if (transitioningFromHistoryRef.current) {
-          transitioningFromHistoryRef.current = false;
-          setHistoryState((current) => current ? { ...current, status: 'transitioned' } : current);
-          setEvents([]);
-        }
-        setState(pausedRef.current ? 'paused' : 'streaming');
-        return;
-      }
-      if (event.type === 'sourceStarted' || event.type === 'sourceEnded' || event.type === 'sourceError' || event.type === 'sourceWarning') {
-        setSourceStates((current) => {
-          const next = sourceStateForEvent(current, event);
-          sourceStatesRef.current = next;
-          return next;
-        });
-        if (event.type === 'sourceError') setState('partial');
-        return;
-      }
-      if (event.type === 'line') {
-        const source = sourceStatesRef.current.get(event.sourceId)?.source ?? sessionSources.find((item) => item.sourceId === event.sourceId);
-        if (!source) return;
-        setEvents((current) => appendBoundedEvent(current, { source: event.application ? { ...source, application: event.application } : source, event }, Math.min(CLIENT_LOG_BUFFER, acceptedLimitsRef.current.maxLinesTotal)));
-        if (pausedRef.current) setReceivedWhilePaused((count) => count + 1);
-        setState((current) => current === 'partial' || pausedRef.current ? 'paused' : 'streaming');
-        return;
-      }
-      if (event.type === 'summary') {
-        summaryRef.current = event.reason;
-        setSummaryReason(event.reason);
-        setAcceptedLimits(event.limits);
-        finishSearchOperation(operationId);
-        setState((current) => current === 'partial' ? 'partial' : 'ended');
-        return;
-      }
-      if (event.type === 'error') {
-        setError(event.message);
-        finishSearchOperation(operationId);
-        setState('error');
-      }
+      liveSessionController.handle(event as LiveAggregateLogEvent);
     };
     socket.onerror = () => {
       if (active) {
-        if (failPendingHistoryWindows('Could not load the historical window.')) return;
-        if (failPendingHistoryQueryWindows('Could not load the historical query window.')) return;
+        if (failPendingWindows('Could not load the historical window.')) return;
+        if (failPendingQueryWindows('Could not load the historical query window.')) return;
         setError('Could not connect to the aggregate log stream.');
         finishSearchOperation(operationId);
         if (transitioningFromHistoryRef.current) setHistoryState((current) => current ? { ...current, status: 'transition-failed' } : current);
@@ -449,8 +354,8 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
     };
     socket.onclose = () => {
       if (active) {
-        if (failPendingHistoryWindows('The history connection closed while loading a window.')) return;
-        if (failPendingHistoryQueryWindows('The history connection closed while loading a query window.')) return;
+        if (failPendingWindows('The history connection closed while loading a window.')) return;
+        if (failPendingQueryWindows('The history connection closed while loading a query window.')) return;
         finishSearchOperation(operationId);
         if (transitioningFromHistoryRef.current) setHistoryState((current) => current ? { ...current, status: 'transition-failed' } : current);
         setState((current) => current === 'error' || current === 'partial' || summaryRef.current ? current : 'ended');
@@ -516,27 +421,6 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
   const clearFilters = () => updateDraft((current) => ({ ...current, filters: { pod: '', container: '', cluster: '', namespace: '', text: '' } }));
   const draftFilterCount = Object.values(draft.filters).filter(Boolean).length;
   const activeFilterCount = Object.values(applied.filters).filter(Boolean).length;
-  const beginTransportOperation = (snapshot: LogSearchOperationSnapshot, kind: LogSearchOperationKind) => {
-    const operation = { kind, snapshot };
-    setSearchOperationState(operation);
-    setSessionAttempt((attempt) => attempt + 1);
-  };
-  const confirmSearch = () => {
-    const activation = createLogSearchActivation({ draft, applied }, {
-      isBusy: Boolean(searchOperationRef.current),
-      sources: selectedSources,
-      now: new Date(),
-      requestId: ++searchOperationIdRef.current,
-    });
-    if (!activation.accepted) {
-      if (activation.reason === 'invalid-range') setValidationError(activation.error);
-      return;
-    }
-    setValidationError(undefined);
-    searchJumpRequestRef.current = createLogSearchJumpRequest(activation.snapshot, activation.kind);
-    if (activation.startsTransport) beginTransportOperation(activation.snapshot, activation.kind);
-    setSearch(activation.nextState);
-  };
   const requestHistoryEdge = (edge: 'before' | 'after') => {
     if (applied.mode !== 'history' || !historyState || !['complete', 'partial', 'failed'].includes(historyState.status)) return;
     for (const source of historyState.sources) {
@@ -607,23 +491,6 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
     searchJumpRequestRef.current = consumeLogSearchJumpRequest(request);
     jump();
   }, [applied.filters, applied.mode, events.length, historyQuery?.queryId, paused, state, virtualCount]);
-  const canTransitionToLive = applied.mode === 'history' && historyState && ['complete', 'partial'].includes(historyState.status);
-  const transitionToLive = () => {
-    if (!canTransitionToLive || hasPendingSearch || isSearchApplying) return;
-    transitioningFromHistoryRef.current = true;
-    setHistoryState((current) => current ? { ...current, status: 'transitioning' } : current);
-    const next = { ...applied, mode: 'live' as const, follow: true };
-    const range = resolveLogRange(next.period, new Date(), { from: next.customFrom, to: next.customTo }).range ?? {};
-    beginTransportOperation(createLogSearchOperationSnapshot(next, range, selectedSources, ++searchOperationIdRef.current), 'live');
-    setSearch({ draft: cloneLogSearchValues(next), applied: cloneLogSearchValues(next) });
-  };
-  const retryLiveTransition = () => {
-    if (historyState?.status !== 'transition-failed' || isSearchApplying) return;
-    transitioningFromHistoryRef.current = true;
-    setHistoryState((current) => current ? { ...current, status: 'transitioning' } : current);
-    const range = resolveLogRange(applied.period, new Date(), { from: applied.customFrom, to: applied.customTo }).range ?? {};
-    beginTransportOperation(createLogSearchOperationSnapshot(applied, range, selectedSources, ++searchOperationIdRef.current), 'live');
-  };
   const cancelHistory = () => {
     const identity = historyRuntimeRef.current.identity;
     const socket = historySocketRef.current;
@@ -700,28 +567,3 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
     <div className="log-footer"><span aria-live="polite">{queryHistoryActive ? `${historyQuery!.totalMatches.toLocaleString()} matching` : activeFilterCount > 0 ? `${visibleEvents.length} of ${events.length}` : `${events.length}`} retained / {totalLines.toLocaleString()} emitted{totalDropped > 0 ? ` / ${totalDropped} dropped` : ''}{applied.mode === 'live' && events.length >= CLIENT_LOG_BUFFER ? ' · client buffer full' : ''}{receivedWhilePaused > 0 ? ` · ${receivedWhilePaused} received while paused` : ''}</span>{summaryReason && <span>ended: {summaryReason}</span>}{applied.mode === 'history' && historyState?.status === 'transitioned' && <span>History boundary closed · live acknowledged</span>}{!autoScroll && <button type="button" className="text-button" onClick={jumpToLatest}>Jump to latest</button>}</div>
   </div>;
 }
-
-function FilterSelect({ label, value, values, onChange }: { label: string; value: string; values: string[]; onChange: (value: string) => void }) {
-  return <label className={`log-control log-filter-select ${value ? 'is-selected' : 'is-empty'}`} data-state={value ? 'selected' : 'empty'}><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)} aria-label={`Filter by ${label.toLowerCase()}`}><option value="">All {label.toLowerCase()}s</option>{values.map((option) => <option value={option} key={option}>{option}</option>)}</select>{value && <button type="button" className="filter-clear" onClick={() => onChange('')} aria-label={`Clear ${label.toLowerCase()} filter`}><X size={11} aria-hidden="true" /></button>}</label>;
-}
-
-function stateLabel(state: ConnectionState): string { if (state === 'validating') return 'validating'; if (state === 'connecting') return 'connecting'; if (state === 'streaming') return 'live'; if (state === 'paused') return 'paused'; if (state === 'partial' || state === 'history-partial') return 'partial'; if (state === 'history-starting') return 'history starting'; if (state === 'history-reading') return 'reading history'; if (state === 'history-ready') return 'history ready'; if (state === 'history-cancelled') return 'history cancelled'; if (state === 'history-expired') return 'history expired'; if (state === 'transitioning') return 'starting live'; if (state === 'error') return 'error'; return 'ended'; }
-function historyStatusLabel(status: HistoryViewState['status']): string { if (status === 'starting') return 'History session starting'; if (status === 'reading') return 'Preparing historical snapshot'; if (status === 'complete') return 'Historical snapshot ready'; if (status === 'partial') return 'Historical snapshot partial'; if (status === 'failed') return 'Historical snapshot failed'; if (status === 'cancelled') return 'Historical snapshot cancelled'; if (status === 'expired') return 'Historical snapshot expired'; if (status === 'transitioning') return 'Historical boundary retained while Live connects'; if (status === 'transition-failed') return 'Live transition failed; history retained'; return 'Historical boundary closed; Live acknowledged'; }
-function emptyMessage(state: ConnectionState, mode: 'live' | 'history', history: HistoryViewState | undefined, windowLoading: boolean, windowError: string | undefined, eventCount: number, filterCount: number): string { if (filterCount > 0 && eventCount > 0) return 'No event matches the selected filters.'; if (mode === 'history') { if (state === 'history-starting' || state === 'history-reading') return 'Preparing the historical snapshot...'; if (windowError) return 'The historical window could not be loaded. Retry the window request.'; if (windowLoading) return 'Loading historical window...'; if (history?.status === 'cancelled') return 'History was cancelled. Start a new Search to begin again.'; if (history?.status === 'expired') return 'This historical snapshot expired. Start a new Search to prepare it again.'; if (history?.status === 'failed') return 'The historical snapshot failed without readable records.'; if (history?.status === 'complete' || history?.status === 'partial') return 'The historical snapshot contains no records.'; } return state === 'connecting' || state === 'transitioning' ? 'Connecting to selected sources...' : 'No log events received yet.'; }
-function formatRange(range?: { from?: string; to?: string }): string { if (!range || (!range.from && !range.to)) return 'Range: all available'; return `Range: ${range.from ?? 'all available'} to ${range.to ?? 'now'} (UTC, end exclusive)`; }
-function formatBytes(bytes: number): string { if (bytes >= 1024 * 1024) return `${Math.round(bytes / (1024 * 1024))} MiB`; if (bytes >= 1024) return `${Math.round(bytes / 1024)} KiB`; return `${bytes} B`; }
-
-function LogRow({ record, grouping, query, start, wrapLines, measureElement, index }: { record: LogEventRecord; grouping: LogGrouping; query: string; start: number; wrapLines: boolean; measureElement: (element: HTMLElement) => void; index: number }) {
-  const group = grouping === 'application' ? record.source.application?.name ?? record.source.pod : record.source.container;
-  const message = record.event.message || '(empty message)';
-  return <div ref={(element) => { if (element) measureElement(element); }} data-index={index} className={`log-line structured-log-line ${wrapLines ? 'is-wrapped' : 'is-nowrap'}`} style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${start}px)` }}>
-    <span className="log-source-cell" title={`${record.source.pod} / ${record.source.container}`}><strong>{group}</strong><small>{record.source.pod} / {record.source.container}</small></span>
-    <span className="log-message" aria-label={message}>{highlightSegments(message, query).map((segment, index) => segment.match ? <mark className="log-mark" key={index}>{segment.text}</mark> : <span key={index}>{segment.text}</span>)}</span>
-  </div>;
-}
-
-function LogRowPlaceholder({ start, wrapLines, measureElement, index }: { start: number; wrapLines: boolean; measureElement: (element: HTMLElement) => void; index: number }) {
-  return <div ref={(element) => { if (element) measureElement(element); }} data-index={index} className={`log-line structured-log-line log-query-placeholder ${wrapLines ? 'is-wrapped' : 'is-nowrap'}`} style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${start}px)` }} aria-label="Loading historical record"><span className="log-source-cell" aria-hidden="true"><strong>...</strong><small>loading</small></span><span className="log-message" aria-hidden="true">Loading historical record...</span></div>;
-}
-
-function highlightSegments(value: string, query: string): Array<{ text: string; match: boolean }> { const needle = query.trim(); if (!needle) return [{ text: value, match: false }]; const lower = value.toLowerCase(); const lowerNeedle = needle.toLowerCase(); const segments: Array<{ text: string; match: boolean }> = []; let cursor = 0; let index = lower.indexOf(lowerNeedle); while (index >= 0) { if (index > cursor) segments.push({ text: value.slice(cursor, index), match: false }); segments.push({ text: value.slice(index, index + needle.length), match: true }); cursor = index + needle.length; index = lower.indexOf(lowerNeedle, cursor); } if (cursor < value.length) segments.push({ text: value.slice(cursor), match: false }); return segments.length > 0 ? segments : [{ text: value, match: false }]; }

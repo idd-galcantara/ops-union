@@ -1,0 +1,427 @@
+/* ---------- Log viewer ---------- */
+
+.log-viewer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.log-toolbar {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  padding: 10px 14px;
+  background: #fafbfc;
+  border-bottom: 1px solid var(--line);
+}
+
+.log-toolbar-range,
+.log-toolbar-actions {
+  min-width: 0;
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.log-mode-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  margin: 0;
+  padding: 3px 7px;
+  color: var(--text-soft);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: 9px var(--mono);
+}
+.log-mode-control legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font: 8px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.35px;
+}
+
+.log-mode-control label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.log-mode-control input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.log-toolbar-actions {
+  align-items: center;
+}
+
+.log-search-cluster {
+  display: inline-flex;
+  align-items: end;
+  flex: 0 0 auto;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.log-search-status {
+  min-width: 0;
+  flex: 1 1 180px;
+  color: var(--muted);
+  font: 9px var(--mono);
+}
+
+.log-validation-error {
+  margin: 8px 14px 0;
+  padding: 8px 10px;
+  color: var(--error-ink);
+  background: var(--error-soft);
+  border: 1px solid var(--error);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.log-control {
+  display: grid;
+  gap: 3px;
+  color: var(--muted);
+  font: 8px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.35px;
+}
+
+.log-control select,
+.log-control input {
+  min-width: 92px;
+  height: 26px;
+  padding: 0 6px;
+  color: var(--ink);
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: 9px var(--mono);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.log-control select:focus-visible,
+.log-control input:focus-visible,
+.log-follow input:focus-visible,
+.log-source-option input:focus-visible {
+  outline: 2px solid rgba(223, 112, 69, 0.55);
+  outline-offset: 2px;
+}
+
+.log-range-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.log-follow {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-soft);
+  font: 9px var(--mono);
+  white-space: nowrap;
+}
+
+.log-follow input,
+.log-source-option input {
+  accent-color: var(--accent);
+}
+
+.log-range-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 14px;
+  padding: 7px 14px;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--line);
+  font: 9px var(--mono);
+}
+
+.log-history-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  color: var(--text-soft);
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--line);
+  font: 9px/1.45 var(--mono);
+}
+
+.log-history-status > div:first-child {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.log-history-status strong {
+  color: var(--ink);
+}
+
+.log-history-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.log-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  max-height: 74px;
+  overflow: auto;
+  margin: 0;
+  padding: 7px 14px 8px;
+  color: var(--muted);
+  border: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.log-sources legend {
+  width: 100%;
+  padding: 0;
+  color: var(--muted);
+  font: 8px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.log-source-option {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-soft);
+  font-size: 9px;
+}
+
+.log-source-option span {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-source-option small {
+  color: var(--muted);
+  font: 8px var(--mono);
+}
+
+.log-partial-summary {
+  display: grid;
+  gap: 3px;
+  max-height: 88px;
+  overflow: auto;
+  padding: 7px 12px;
+  color: var(--error-ink);
+  background: var(--error-soft);
+  border-bottom: 1px solid #f0ceca;
+  font-size: 9px;
+}
+
+.log-partial-summary span {
+  overflow-wrap: anywhere;
+}
+
+.log-container-select select {
+  height: 26px;
+  max-width: 150px;
+  padding: 0 6px;
+  color: #566276;
+  background: #fff;
+  border: 1px solid #e1e5ea;
+  border-radius: 4px;
+  font: 9px var(--mono);
+}
+
+.log-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font: 9px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.log-state-streaming {
+  color: var(--ok-ink);
+  background: var(--ok-soft);
+}
+
+.log-state-streaming .status-dot {
+  background: var(--ok);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.log-state-connecting {
+  color: var(--muted);
+  background: #f0f2f4;
+}
+
+.log-state-connecting .status-dot {
+  background: var(--muted);
+}
+
+.log-state-ended {
+  color: #687486;
+  background: #f1f3f6;
+}
+
+.log-state-ended .status-dot {
+  background: #9aa3b1;
+}
+
+.log-state-error {
+  color: var(--error-ink);
+  background: var(--error-soft);
+}
+
+.log-state-error .status-dot {
+  background: var(--error);
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.log-filter {
+  flex: 1;
+  min-width: 130px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  color: #9ba4b1;
+  background: #fff;
+  border: 1px solid #e4e7eb;
+  border-radius: 4px;
+}
+
+.log-filter:focus-within {
+  border-color: #d99a80;
+}
+
+.log-filter input {
+  width: 100%;
+  min-width: 0;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font-size: 10px;
+}
+
+.log-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.log-output {
+  /* Fills the leftover height and scrolls internally, so the panel never grows
+     past the viewport regardless of how many lines arrive. */
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px;
+  background: #1f2734;
+  color: #e6ebf2;
+  font: 10px/1.55 var(--mono);
+  overscroll-behavior: contain;
+}
+
+.structured-log-line {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-height: 34px;
+  padding: 7px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.log-event-meta {
+  display: inline-flex;
+  flex: 0 1 48%;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+  color: #91a0b4;
+  white-space: nowrap;
+}
+
+.log-event-meta strong {
+  flex: 0 0 auto;
+  max-width: 120px;
+  overflow: hidden;
+  color: #f1b08e;
+  text-overflow: ellipsis;
+}
+
+.log-event-meta span,
+.log-event-meta time {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-event-meta time {
+  flex: 0 0 auto;
+  color: #75859c;
+}
+
+.log-mark {
+  padding: 0 1px;
+  color: #1f2734;
+  background: #ffd48a;
+  border-radius: 2px;
+}
+
+.log-output:focus-visible {
+  outline: 2px solid rgba(223, 112, 69, 0.5);
+  outline-offset: -2px;
+}
+
+.log-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.log-empty {
+  margin: 0;
+  color: #8d99ab;
+  font-size: 10px;
+}
+
+.log-footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 14px;
+  color: var(--muted);
+  background: #fff;
+  border-top: 1px solid var(--line);
+  font: 9px var(--mono);
+}

@@ -1,0 +1,117 @@
+/* ---------- Responsive ---------- */
+
+@media (min-width: 1001px) {
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+}
+
+@media (max-width: 1000px) {
+  .app-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    overflow: visible;
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .context-list {
+    max-height: 180px;
+  }
+
+  .panel-header,
+  .view-toolbar,
+  .panel-content {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+}
+
+.secondary-button {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  color: #647084;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.secondary-button:hover {
+  color: var(--ink);
+  border-color: #c6cdd6;
+}
+
+.pod-group-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px !important;
+.namespace-selected-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: -2px 0 8px;
+}
+
+.namespace-selected-chip {
+  min-width: 0;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 5px 4px 7px;
+  color: var(--accent-hover);
+  background: var(--accent-soft);
+  border: 1px solid #f3d5c8;
+  border-radius: 4px;
+  font: 9px var(--mono);
+}
+
+.namespace-selected-chip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.namespace-selected-remove {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  color: var(--accent-hover);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+}
+
+.namespace-selected-remove:hover,
+.namespace-selected-remove:focus-visible {
+  color: var(--ink);
+  background: rgba(223, 112, 69, 0.16);
+  outline: none;
+}
+  background: #fafbfc;
+}

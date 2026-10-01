@@ -1,0 +1,367 @@
+/* ---------- Refresh control ---------- */
+
+.refresh-control select {
+  height: 26px;
+  padding: 0 4px;
+  color: #566276;
+  background: #fff;
+  border: 1px solid #e4e7eb;
+  border-radius: 4px;
+  font: 9px var(--mono);
+}
+
+.last-updated {
+  color: var(--muted);
+  font: 9px var(--mono);
+  white-space: nowrap;
+}
+
+/* ---------- Shared feedback states ---------- */
+
+.feedback-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 14px 16px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.feedback-error {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  color: var(--error-ink);
+  background: var(--error-soft);
+  border: 1px solid #f0ceca;
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.feedback-error > svg {
+  flex: 0 0 auto;
+}
+
+.feedback-error-message {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.feedback-error .text-button {
+  flex: 0 0 auto;
+  color: var(--error-ink);
+  text-decoration: underline;
+}
+
+.app-shell[data-theme='dark'] {
+  --ink: #f4f7fa;
+  --muted: #bcc7d4;
+  --line: #414c5c;
+  --panel: #252e3a;
+  --canvas: #1d2530;
+  --navy: #d1dae4;
+  --accent: #e98761;
+  --accent-soft: #3d2926;
+  --accent-hover: #f19b78;
+  --ok: #71c79a;
+  --ok-soft: #21382f;
+  --ok-ink: #8bd3aa;
+  --warn: #d9b36f;
+  --warn-soft: #3b3223;
+  --warn-ink: #e4c88e;
+  --error: #d97973;
+  --error-soft: #3e292b;
+  --error-ink: #f09b95;
+  --info: #88a8c7;
+  --surface: #2b3542;
+  --surface-subtle: #252f3b;
+  --surface-muted: #344050;
+  --field: #222c38;
+  --hover: #3b4859;
+  --text-soft: #d0d9e3;
+  --line-strong: #5a687a;
+  color-scheme: dark;
+}
+
+.app-shell[data-theme='dark'] .brand-mark {
+  color: #fff;
+  background: var(--accent);
+}
+
+.app-shell[data-theme='dark'] .topbar,
+.app-shell[data-theme='dark'] .panel-header,
+.app-shell[data-theme='dark'] .details-header,
+.app-shell[data-theme='dark'] .details-tabs,
+.app-shell[data-theme='dark'] .log-footer,
+.app-shell[data-theme='dark'] .sidebar-footer,
+.app-shell[data-theme='dark'] .pod-group,
+.app-shell[data-theme='dark'] .target-chip,
+.app-shell[data-theme='dark'] .container-card,
+.app-shell[data-theme='dark'] .metric-card,
+.app-shell[data-theme='dark'] .event-list li,
+.app-shell[data-theme='dark'] .preset-library,
+.app-shell[data-theme='dark'] .preset-editor,
+.app-shell[data-theme='dark'] .preset-secondary-dialog {
+  background: var(--surface);
+}
+
+.app-shell[data-theme='dark'] .view-toolbar,
+.app-shell[data-theme='dark'] .pod-group-heading,
+.app-shell[data-theme='dark'] .log-toolbar,
+.app-shell[data-theme='dark'] .preset-target-add-row {
+  background: var(--surface-subtle);
+}
+
+.app-shell[data-theme='dark'] .sidebar-search,
+.app-shell[data-theme='dark'] .inspector-field input,
+.app-shell[data-theme='dark'] .namespace-multi-control,
+.app-shell[data-theme='dark'] .filter-bar,
+.app-shell[data-theme='dark'] .target-error-icon,
+.app-shell[data-theme='dark'] .target-error-list li,
+.app-shell[data-theme='dark'] .pod-table th,
+.app-shell[data-theme='dark'] .log-container-select select,
+.app-shell[data-theme='dark'] .log-filter,
+.app-shell[data-theme='dark'] .log-control select,
+.app-shell[data-theme='dark'] .log-control input,
+.app-shell[data-theme='dark'] .preset-search,
+.app-shell[data-theme='dark'] .preset-library-save-form input,
+.app-shell[data-theme='dark'] .preset-form input,
+.app-shell[data-theme='dark'] .preset-editor-fields input,
+.app-shell[data-theme='dark'] .preset-editor-fields textarea,
+.app-shell[data-theme='dark'] .preset-target-editor-row input,
+.app-shell[data-theme='dark'] .preset-target-editor-row select,
+.app-shell[data-theme='dark'] .preset-target-add-row input,
+.app-shell[data-theme='dark'] .preset-target-add-row select,
+.app-shell[data-theme='dark'] .preset-namespace-suggestions,
+.app-shell[data-theme='dark'] .namespace-suggestions,
+.app-shell[data-theme='dark'] .refresh-control select,
+.app-shell[data-theme='dark'] .secondary-button,
+.app-shell[data-theme='dark'] .preset-library-apply {
+  color: var(--ink);
+  background: var(--field);
+  border-color: var(--line);
+}
+
+.app-shell[data-theme='dark'] .icon-button:hover:not(:disabled),
+.app-shell[data-theme='dark'] .preset-search-clear:hover,
+.app-shell[data-theme='dark'] .context-item:hover {
+  background: var(--hover);
+}
+
+.app-shell[data-theme='dark'] .grouping-control,
+.app-shell[data-theme='dark'] .filter-clear,
+.app-shell[data-theme='dark'] .severity-neutral,
+.app-shell[data-theme='dark'] .log-state-connecting,
+.app-shell[data-theme='dark'] .log-state-ended,
+.app-shell[data-theme='dark'] .log-range-summary,
+.app-shell[data-theme='dark'] .namespace-option-reach {
+  background: var(--surface-muted);
+}
+
+.app-shell[data-theme='dark'] .grouping-control button.active,
+.app-shell[data-theme='dark'] .pod-table tbody tr:hover td,
+.app-shell[data-theme='dark'] .pod-row:hover td,
+.app-shell[data-theme='dark'] .preset-library-apply:hover {
+  background: var(--hover);
+}
+
+.app-shell[data-theme='dark'] .details-tabs button {
+  color: var(--text-soft);
+}
+
+.app-shell[data-theme='dark'] .details-tabs button:hover,
+.app-shell[data-theme='dark'] .details-tabs button.active {
+  color: var(--ink);
+}
+
+.app-shell[data-theme='dark'] .eyebrow,
+.app-shell[data-theme='dark'] .detail-item dt,
+.app-shell[data-theme='dark'] .metric-label,
+.app-shell[data-theme='dark'] .metric-limit,
+.app-shell[data-theme='dark'] .metric-percent,
+.app-shell[data-theme='dark'] .pod-table th {
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
+.app-shell[data-theme='dark'] .inspector-field > span {
+  color: var(--text-soft);
+}
+
+.app-shell[data-theme='dark'] .pod-table th {
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
+.app-shell[data-theme='dark'] .pod-table td {
+  color: var(--ink);
+}
+
+.app-shell[data-theme='dark'] .pod-table .mono-cell {
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
+.app-shell[data-theme='dark'] .pod-table .pod-name-cell {
+  color: #f3f6fa;
+}
+
+.app-shell[data-theme='dark'] .metric-card strong {
+  color: var(--ink);
+}
+
+.app-shell[data-theme='dark'] .metric-bar {
+  background: var(--surface-muted);
+}
+
+.app-shell[data-theme='dark'] .sidecar-tag {
+  color: #c2d8ee;
+  background: #33465d;
+  font-weight: 600;
+}
+
+.app-shell[data-theme='dark'] .namespace-option {
+  color: var(--ink);
+}
+
+.app-shell[data-theme='dark'] .namespace-option-reach {
+  color: var(--text-soft);
+}
+
+.app-shell[data-theme='dark'] .namespace-selected-chip {
+  border-color: #654237;
+}
+
+.app-shell[data-theme='dark'] .pod-table th,
+.app-shell[data-theme='dark'] .pod-table td {
+  border-bottom-color: var(--line);
+}
+
+.app-shell[data-theme='dark'] .context-check {
+  background: var(--field);
+  border-color: var(--line-strong);
+}
+
+.app-shell[data-theme='dark'] .context-item.is-unavailable .context-check {
+  background: var(--field);
+}
+
+.app-shell[data-theme='dark'] .mono-cell,
+.app-shell[data-theme='dark'] .event-message,
+.app-shell[data-theme='dark'] .kv-value,
+.app-shell[data-theme='dark'] .container-meta,
+.app-shell[data-theme='dark'] .termination-entry-meta,
+.app-shell[data-theme='dark'] .termination-history p,
+.app-shell[data-theme='dark'] .target-error-message,
+.app-shell[data-theme='dark'] .preset-text em {
+  color: var(--text-soft);
+}
+
+.app-shell[data-theme='dark'] .event-message,
+.app-shell[data-theme='dark'] .kv-value,
+.app-shell[data-theme='dark'] .container-meta,
+.app-shell[data-theme='dark'] .target-error-message,
+.app-shell[data-theme='dark'] .preset-text em {
+  font-weight: 500;
+}
+
+.app-shell[data-theme='dark'] .topbar-status.status-loading {
+  background: var(--surface-muted);
+}
+
+.app-shell[data-theme='dark'] .target-error-list li,
+.app-shell[data-theme='dark'] .event-list li,
+.app-shell[data-theme='dark'] .preset-library-apply {
+  border-color: var(--line);
+}
+
+.app-shell[data-theme='dark'] .preset-import-result {
+  border-color: var(--line);
+}
+
+.app-shell[data-theme='dark'] .preset-library-feedback {
+  border-color: var(--line);
+}
+
+.app-shell[data-theme='dark'] .preset-library-item.is-active {
+  background: var(--ok-soft);
+  border-color: var(--line);
+}
+
+.app-shell[data-theme='dark'] .preset-library-item.is-active:has(.preset-library-active-label) {
+  background: var(--warn-soft);
+  border-color: var(--line);
+}
+
+@media (max-width: 520px) {
+  .topbar {
+    flex-wrap: wrap;
+    gap: 12px;
+    min-height: 66px;
+    height: auto;
+    padding: 10px 14px;
+  }
+
+  .brand-lockup span {
+    display: none;
+  }
+
+  .topbar-actions {
+    gap: 6px;
+  }
+
+  .topbar > .workspace-section {
+    order: 3;
+    flex: 1 0 100%;
+  }
+
+  .topbar > .workspace-section .workspace-quick-controls {
+    width: 100%;
+  }
+
+  .workspace-quick-controls {
+    flex-wrap: wrap;
+  }
+
+  .workspace-workspace-quick-trigger {
+    flex: 1 1 100%;
+  }
+
+  .workspace-preset-quick-trigger {
+    flex: 1 1 auto;
+  }
+
+  .workspace-preset-control {
+    min-width: 0;
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .workspace-quick-trigger {
+    gap: 5px;
+  }
+
+  .workspace-quick-trigger + .workspace-quick-trigger {
+    margin-left: 5px;
+    padding-left: 7px;
+  }
+}
+
+.sidebar-feedback {
+  padding: 0 6px;
+}
+
+.sidebar-feedback .feedback-loading,
+.sidebar-feedback .feedback-error {
+  padding: 8px 9px;
+  font-size: 10px;
+}
+
+.log-viewer .feedback-error {
+  margin: 8px 12px;
+}

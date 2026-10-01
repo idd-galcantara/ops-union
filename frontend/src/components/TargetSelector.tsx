@@ -3,11 +3,9 @@ import {
   AlertTriangle,
   Bookmark,
   Check,
-  ChevronDown,
   Download,
   FileUp,
   Layers,
-  LayoutGrid,
   Loader,
   Pencil,
   Plus,
@@ -17,14 +15,13 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { canUseManualNamespace, hasExactNamespaceMatch } from '../namespaceSuggestions';
 import { suggestNamespaces } from '../namespaceSuggestions';
 import { getQuickPresets } from '../launchpad';
 import { applyPresetAndLoad } from '../presetFlow';
 import { getPresetSelectionState, reconcilePresetSelection, toggleVisiblePresetSelection } from '../presetSelection';
+import { filterPresets, getPresetIds } from '../presetLibraryModel';
 import {
   describePreset,
-  orderPresetsByRecentUse,
   type Preset,
 } from '../presets';
 import {
@@ -38,10 +35,11 @@ import {
 import { useOpsFlowStore } from '../store';
 import { targetKey, type NamespaceInfo } from '../types';
 import { MAX_WORKSPACE_NAME_LENGTH, parseWorkspaceImportFile, validateWorkspaceName, type Workspace, type WorkspaceImportResult } from '../workspaces';
-import { ErrorState, LoadingState } from './Feedback';
+import { areAllVisibleWorkspacesSelected, filterWorkspaces, getSelectedVisibleWorkspaceIds, type WorkspaceDeleteIntent } from '../workspaceViewModel';
 import { DestructiveConfirmation } from './DestructiveConfirmation';
-import { NamespaceInput } from './NamespaceInput';
-import { KubeconfigSetup } from './KubeconfigSetup';
+import { TargetSelectionPanel } from './TargetSelectionPanel';
+import { PresetLibraryHeader } from './PresetLibraryHeader';
+import { WorkspaceQuickControls } from './WorkspaceQuickControls';
 
 interface TargetSelectorProps {
   openPresetsRequest: number;
@@ -135,12 +133,6 @@ export function TargetSelector({
   const namespacesLoading = useOpsFlowStore((s) => s.namespacesLoading);
   const namespacesError = useOpsFlowStore((s) => s.namespacesError);
 
-  const [namespace, setNamespace] = useState('');
-  const [selectedNamespaces, setSelectedNamespaces] = useState<string[]>([]);
-  const [selectedClusters, setSelectedClusters] = useState<string[]>([]);
-  const [contextFilter, setContextFilter] = useState('');
-  const [presetEditorOpen, setPresetEditorOpen] = useState(false);
-
   useEffect(() => {
     void loadContexts();
   }, [loadContexts]);
@@ -149,298 +141,33 @@ export function TargetSelector({
     void loadKubeconfigStatus();
   }, [loadKubeconfigStatus]);
 
-  useEffect(() => {
-    setSelectedClusters([]);
-    setSelectedNamespaces([]);
-    setNamespace('');
-    setContextFilter('');
-  }, [configurationRevision]);
-
-  const visibleContexts = useMemo(() => {
-    const needle = contextFilter.trim().toLowerCase();
-    if (!needle) return contexts;
-    return contexts.filter((c) => c.name.toLowerCase().includes(needle));
-  }, [contextFilter, contexts]);
-  const allVisibleClustersSelected = visibleContexts.length > 0 && visibleContexts.every((context) => selectedClusters.includes(context.name));
-
-  const toggleCluster = (name: string) => {
-    setSelectedNamespaces([]);
-    setNamespace('');
-    setSelectedClusters((current) =>
-      current.includes(name) ? current.filter((c) => c !== name) : [...current, name],
-    );
-  };
-
-  const toggleVisibleClusters = () => {
-    const visibleNames = visibleContexts.map((context) => context.name);
-    setSelectedNamespaces([]);
-    setNamespace('');
-    setSelectedClusters((current) => allVisibleClustersSelected
-      ? current.filter((cluster) => !visibleNames.includes(cluster))
-      : [...new Set([...current, ...visibleNames])]);
-  };
-
-  const namespacesReady =
-    selectedClusters.length > 0 &&
-    !namespacesLoading &&
-    [...selectedClusters].sort().join('|') === namespacesFor.join('|');
-  const manualNamespaceFallback = canUseManualNamespace(
-    namespaces,
-    namespacesReady,
-    namespacesError,
-  );
-  const hasExactMatch =
-    (namespacesReady && hasExactNamespaceMatch(namespaces, namespace)) ||
-    (manualNamespaceFallback && Boolean(namespace.trim()));
-  const namespacesToAdd = [
-    ...selectedNamespaces,
-    ...(hasExactMatch && namespace.trim() && !selectedNamespaces.includes(namespace.trim())
-      ? [namespace.trim()]
-      : []),
-  ];
-  const namespaceInfoByName = useMemo(
-    () => new Map(namespaces.map((item) => [item.name, item])),
-    [namespaces],
-  );
-  const isNamespaceAvailable = (cluster: string, name: string) =>
-    namespaceInfoByName.get(name)?.clusters.includes(cluster) ??
-    (manualNamespaceFallback && Boolean(name.trim()));
-  const unavailableClusters = selectedClusters.filter((cluster) =>
-    namespacesToAdd.some((name) => !isNamespaceAvailable(cluster, name)),
-  );
-  const availableTargetCount = selectedClusters.reduce(
-    (count, cluster) =>
-      count + namespacesToAdd.filter((name) => isNamespaceAvailable(cluster, name)).length,
-    0,
-  );
-  const unavailableTargetCount = selectedClusters.length * namespacesToAdd.length - availableTargetCount;
-  const canAdd =
-    selectedClusters.length > 0 &&
-    namespacesReady &&
-    availableTargetCount > 0;
-
-  const selectNamespace = (name: string) => {
-    const next = name.trim();
-    if (!hasExactNamespaceMatch(namespaces, next) && !manualNamespaceFallback) return;
-    setSelectedNamespaces((current) => (current.includes(next) ? current : [...current, next]));
-    setNamespace('');
-  };
-
-  const removeNamespace = (name: string) => {
-    setSelectedNamespaces((current) => current.filter((item) => item !== name));
-  };
-
-  /**
-   * Adds one target for every selected cluster and namespace, then resets the
-   * form so the next addition starts from a clean slate.
-   */
-  const addSelection = () => {
-    if (!canAdd) return;
-    selectedClusters.forEach((cluster) => {
-      namespacesToAdd.forEach((ns) => {
-        if (!isNamespaceAvailable(cluster, ns)) return;
-        addTarget({ cluster, namespace: ns });
-      });
-    });
-    setSelectedClusters([]);
-    setSelectedNamespaces([]);
-    setNamespace('');
-    setContextFilter('');
-  };
-
   return (
     <aside className="sidebar">
-      <div
-        className={`sidebar-resize-handle ${resizing ? 'is-resizing' : ''}`}
-        onMouseDown={onResizeStart}
-        onTouchStart={onResizeStart}
-        onKeyDown={(e) => {
-          if (e.key === 'ArrowLeft') {
-            e.preventDefault();
-            onResizeNudge(-KEYBOARD_STEP);
-          }
-          if (e.key === 'ArrowRight') {
-            e.preventDefault();
-            onResizeNudge(KEYBOARD_STEP);
-          }
-        }}
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize targets panel"
-        aria-valuemin={sidebarMin}
-        aria-valuemax={sidebarMax}
-        aria-valuenow={Math.round(sidebarWidth)}
-        tabIndex={0}
-      />
-      <div className="sidebar-content">
-      <div className="sidebar-heading">
-        <div>
-          <span className="eyebrow">Targets</span>
-          <h1>Clusters & namespaces</h1>
-        </div>
-        <button
-          type="button"
-          className="icon-button subtle"
-          title="Reload contexts from kubeconfig"
-          aria-label="Reload contexts from kubeconfig"
-          onClick={() => void loadContexts()}
-        >
-          <RefreshCw size={15} />
-        </button>
-      </div>
-
-      <KubeconfigSetup />
-
-      <label className="sidebar-search">
-        <Search size={14} />
-        <span className="visually-hidden">Filter contexts</span>
-        <input
-          value={contextFilter}
-          onChange={(e) => setContextFilter(e.target.value)}
-          placeholder="Filter contexts..."
-          aria-label="Filter contexts"
-        />
-      </label>
-
-      <div className="sidebar-section-label">
-        <span>
-          Contexts <b>{contexts.length}</b>
-        </span>
-        {selectedClusters.length > 0 && <span>{selectedClusters.length} sel.</span>}
-        <button type="button" className="text-button selection-action" onClick={toggleVisibleClusters} disabled={visibleContexts.length === 0 || contextsLoading}>
-          {allVisibleClustersSelected ? 'Clear all' : contextFilter.trim() ? 'Select visible' : 'Select all'}
-        </button>
-      </div>
-
-      {contextsError && (
-        <div className="sidebar-feedback">
-          <ErrorState message={contextsError} onRetry={() => void loadContexts()} />
-        </div>
-      )}
-
-      {contextsLoading && (
-        <div className="sidebar-feedback">
-          <LoadingState message="Loading contexts..." />
-        </div>
-      )}
-
-      <div className="context-list" role="group" aria-label="Available contexts">
-        {visibleContexts.map((ctx) => {
-          const active = selectedClusters.includes(ctx.name);
-          const namespaceUnavailable =
-            active && namespacesReady && unavailableClusters.includes(ctx.name);
-          return (
-            <button
-              type="button"
-              key={ctx.name}
-              className={`context-item ${active ? 'is-active' : ''} ${
-                namespaceUnavailable ? 'is-unavailable' : ''
-              }`}
-              onClick={() => toggleCluster(ctx.name)}
-              aria-pressed={active}
-              aria-label={`${ctx.name}${namespaceUnavailable ? ' (namespace unavailable)' : ''}`}
-              title={
-                namespaceUnavailable
-                  ? 'The selected namespace is not available in this cluster'
-                  : undefined
-              }
-            >
-              <span className="context-check" aria-hidden="true">
-                {active ? <Layers size={12} /> : null}
-              </span>
-              <span className="context-name">{ctx.name}</span>
-              {namespaceUnavailable && (
-                <span className="context-warning" aria-hidden="true">
-                  <AlertTriangle size={12} />
-                </span>
-              )}
-            </button>
-          );
-        })}
-        {!contextsLoading && visibleContexts.length === 0 && (
-          <p className="sidebar-hint">No context matches the filter.</p>
-        )}
-      </div>
-
-      <div className="namespace-row">
-        <NamespaceInput
-          value={namespace}
-          onChange={setNamespace}
-          selectedClusters={selectedClusters}
-          selectedNamespaces={selectedNamespaces}
-          onSelectNamespace={selectNamespace}
-          onRemoveNamespace={removeNamespace}
-          showError={!presetEditorOpen}
-        />
-        <button
-          type="button"
-          className="primary-button add-target-button"
-          onClick={addSelection}
-          disabled={!canAdd}
-          title={
-            canAdd
-              ? 'Add available cluster and namespace targets; unavailable pairs are skipped'
-              : 'Select at least one namespace from the suggestions'
-          }
-        >
-          <Plus size={15} /> Add
-        </button>
-        {namespacesToAdd.length > 0 && namespacesReady && (
-          <p
-            className={`namespace-coverage-summary ${
-              unavailableTargetCount > 0 ? 'is-partial' : ''
-            }`}
-          >
-            {unavailableTargetCount > 0
-              ? `${availableTargetCount} target(s) available · ${unavailableClusters.length} cluster(s) skipped because the namespace is unavailable`
-              : 'Namespace available in all selected clusters'}
-          </p>
-        )}
-      </div>
-
-      <div className="sidebar-section-label">
-        <span>
-          Selected targets <b>{targets.length}</b>
-        </span>
-        {targets.length > 0 && (
-          <button type="button" className="text-button" onClick={clearTargets}>
-            Clear
-          </button>
-        )}
-      </div>
-
-      <div className="target-list">
-        {targets.map((t) => (
-          <div className="target-chip" key={targetKey(t)}>
-            <span className="target-chip-text">
-              <strong>{t.cluster}</strong>
-              <small>{t.namespace}</small>
-            </span>
-            <button
-              type="button"
-              className="icon-button subtle danger"
-              title={`Remove ${targetKey(t)}`}
-              aria-label={`Remove target ${targetKey(t)}`}
-              onClick={() => removeTarget(t)}
-            >
-              <X size={13} />
-            </button>
-          </div>
-        ))}
-        {targets.length === 0 && (
-          <p className="sidebar-hint">
-            Pick contexts, type a namespace and add them to build the unified view.
-          </p>
-        )}
-      </div>
-
-      <PresetSection
-        openRequest={openPresetsRequest}
-        resetRequest={resetRequest}
-        onEditorOpenChange={setPresetEditorOpen}
-      />
-      </div>
-
+      <div className={`sidebar-resize-handle ${resizing ? 'is-resizing' : ''}`} onMouseDown={onResizeStart} onTouchStart={onResizeStart} onKeyDown={(event) => {
+        if (event.key === 'ArrowLeft') {
+          event.preventDefault();
+          onResizeNudge(-KEYBOARD_STEP);
+        }
+        if (event.key === 'ArrowRight') {
+          event.preventDefault();
+          onResizeNudge(KEYBOARD_STEP);
+        }
+      }} role="separator" aria-orientation="vertical" aria-label="Resize targets panel" aria-valuemin={sidebarMin} aria-valuemax={sidebarMax} aria-valuenow={Math.round(sidebarWidth)} tabIndex={0} />
+      <TargetSelectionPanel
+        contexts={contexts}
+        contextsLoading={contextsLoading}
+        contextsError={contextsError}
+        loadContexts={loadContexts}
+        configurationRevision={configurationRevision}
+        targets={targets}
+        addTarget={addTarget}
+        removeTarget={removeTarget}
+        clearTargets={clearTargets}
+        namespaces={namespaces}
+        namespacesFor={namespacesFor}
+        namespacesLoading={namespacesLoading}
+        namespacesError={namespacesError}
+      >{(onEditorOpenChange) => <PresetSection openRequest={openPresetsRequest} resetRequest={resetRequest} onEditorOpenChange={onEditorOpenChange} />}</TargetSelectionPanel>
       <div className="sidebar-footer">
         <button
           type="button"
@@ -599,11 +326,6 @@ function PresetSection({
 
 type BundleConflictStrategy = 'overwrite' | 'skip' | 'resolve';
 
-type WorkspaceDeleteIntent =
-  | { kind: 'workspace'; id: string }
-  | { kind: 'selected'; ids: string[] }
-  | { kind: 'keep-active-only'; ids: string[]; activeId: string };
-
 export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary: () => void }) {
   const workspaces = useOpsFlowStore((state) => state.workspaces);
   const activeWorkspaceId = useOpsFlowStore((state) => state.activeWorkspaceId);
@@ -660,20 +382,9 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
   const quickBusy = managerBusy || podsLoading || Boolean(quickApplyingPresetId);
   const quickMenuBusy = quickBusy || Boolean(pendingPresetId);
   const canUpdateActivePreset = Boolean(activePreset && activePresetDirty && targets.length > 0);
-  const visibleWorkspaces = useMemo(() => {
-    const needle = workspaceQuery.trim().toLowerCase();
-    if (!needle) return workspaces;
-    return workspaces.filter((workspace) =>
-      [workspace.name, workspace.description ?? '', ...workspace.presets.map((preset) => preset.name)]
-        .join(' ')
-        .toLowerCase()
-        .includes(needle),
-    );
-  }, [workspaces, workspaceQuery]);
-  const selectedVisibleWorkspaceIds = visibleWorkspaces
-    .filter((workspace) => selectedWorkspaceIds.includes(workspace.id))
-    .map((workspace) => workspace.id);
-  const allVisibleWorkspacesSelected = visibleWorkspaces.length > 0 && selectedVisibleWorkspaceIds.length === visibleWorkspaces.length;
+  const visibleWorkspaces = useMemo(() => filterWorkspaces(workspaces, workspaceQuery), [workspaces, workspaceQuery]);
+  const selectedVisibleWorkspaceIds = getSelectedVisibleWorkspaceIds(visibleWorkspaces, selectedWorkspaceIds);
+  const allVisibleWorkspacesSelected = areAllVisibleWorkspacesSelected(visibleWorkspaces, selectedWorkspaceIds);
   const importNameError = importPreview && !importPreview.error
     ? validateWorkspaceName(importName, workspaces)
     : undefined;
@@ -1217,93 +928,27 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
 
   return (
     <section className="workspace-section" aria-label="Active workspace and preset">
-      <div ref={quickControlsRef}>
-        <div className="workspace-quick-controls">
-          <button
-            type="button"
-            className="workspace-quick-trigger workspace-workspace-quick-trigger"
-            onClick={() => {
-              closeQuickMenu(false);
-              openManager();
-            }}
-            aria-expanded={open}
-            aria-controls="workspace-manager"
-            aria-haspopup="dialog"
-            aria-label={`Workspace: ${active.name}`}
-            disabled={managerBusy}
-          >
-            <span className="workspace-context-label">Workspace</span>
-            <strong title={active.name}>{active.name}</strong>
-            <LayoutGrid size={13} aria-hidden="true" />
-          </button>
-          <div className="workspace-preset-control">
-            <button
-              ref={presetQuickTriggerRef}
-              type="button"
-              className="workspace-quick-trigger workspace-preset-quick-trigger"
-              onClick={togglePresetMenu}
-              aria-expanded={quickOpen === 'preset'}
-              aria-controls="preset-quick-menu"
-              aria-label={`Preset: ${activePreset?.name ?? 'Live search'}`}
-              disabled={quickMenuBusy}
-            >
-              <Bookmark size={13} aria-hidden="true" />
-              <span className="workspace-context-label">Preset</span>
-              <strong title={activePreset?.name}>{activePreset?.name ?? 'Live search'}</strong>
-              <ChevronDown size={13} aria-hidden="true" />
-            </button>
-            {quickOpen === 'preset' && (
-              <div className="workspace-quick-popover preset-quick-popover" id="preset-quick-menu" role="menu" aria-label="Recent presets">
-              <span className="workspace-quick-heading">Recent Presets</span>
-              {quickPresets.length > 0 ? (
-                <div className="workspace-quick-list">
-                  {quickPresets.map((preset) => {
-                    const presetActive = preset.id === activePresetId;
-                    const presetPending = preset.id === quickApplyingPresetId;
-                    return (
-                      <button
-                        type="button"
-                        className={`workspace-quick-item ${presetActive ? 'is-active' : ''}`}
-                        key={preset.id}
-                        onClick={() => selectQuickPreset(preset.id)}
-                        role="menuitemradio"
-                        aria-checked={presetActive}
-                        aria-busy={presetPending}
-                        disabled={quickMenuBusy}
-                      >
-                        {presetPending ? <Loader size={14} className="spinning" aria-hidden="true" /> : <Bookmark size={14} aria-hidden="true" />}
-                        <span>
-                          <strong title={preset.name}>{preset.name}</strong>
-                          <small>{describePreset(preset)}</small>
-                        </span>
-                        {presetActive && <Check size={14} aria-label="Active" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="workspace-quick-empty">No presets saved in this Workspace.</p>
-              )}
-              <button type="button" className="workspace-quick-manager-link" onClick={openQuickPresetLibrary} disabled={quickMenuBusy}>
-                <Bookmark size={13} /> Open preset library
-              </button>
-              </div>
-            )}
-          </div>
-          {activePresetDirty && (
-            <button
-              type="button"
-              className="preset-update-button workspace-update-button"
-              onClick={updateActivePreset}
-              disabled={!canUpdateActivePreset || quickBusy}
-              aria-label={`Update preset ${activePreset?.name ?? 'active preset'}`}
-              title={`Update preset ${activePreset?.name ?? 'active preset'} with the current targets`}
-            >
-              <Save size={11} />
-            </button>
-          )}
-        </div>
-      </div>
+      <WorkspaceQuickControls
+        active={active}
+        activePreset={activePreset}
+        activePresetId={activePresetId}
+        activePresetDirty={activePresetDirty}
+        quickPresets={quickPresets}
+        quickOpen={quickOpen}
+        quickApplyingPresetId={quickApplyingPresetId}
+        managerBusy={managerBusy}
+        quickBusy={quickBusy}
+        quickMenuBusy={quickMenuBusy}
+        open={open}
+        canUpdateActivePreset={canUpdateActivePreset}
+        quickControlsRef={quickControlsRef}
+        presetQuickTriggerRef={presetQuickTriggerRef}
+        onOpenManager={() => { closeQuickMenu(false); openManager(); }}
+        onTogglePresetMenu={togglePresetMenu}
+        onSelectPreset={selectQuickPreset}
+        onOpenPresetLibrary={openQuickPresetLibrary}
+        onUpdateActivePreset={updateActivePreset}
+      />
       {quickApplyingPresetId && (
         <p className="workspace-status" role="status" aria-live="polite">
           <Loader size={13} className="spinning" /> Loading pods for {presets.find((preset) => preset.id === quickApplyingPresetId)?.name ?? 'selected preset'}...
@@ -1805,23 +1450,8 @@ function PresetLibrary({
   const libraryBusy = Boolean(applyingPresetId) || deletePending || transferPending;
   const libraryRef = useRef<HTMLElement>(null);
   const deleteTriggerRef = useRef<HTMLElement | null>(null);
-  const visiblePresets = useMemo(() => {
-    const orderedPresets = orderPresetsByRecentUse(presets);
-    const needle = query.trim().toLowerCase();
-    if (!needle) return orderedPresets;
-    return orderedPresets.filter((preset) =>
-      [
-        preset.name,
-        preset.description ?? '',
-        describePreset(preset),
-        ...preset.targets.flatMap((target) => [target.cluster, target.namespace]),
-      ]
-        .join(' ')
-        .toLowerCase()
-        .includes(needle),
-    );
-  }, [presets, query]);
-  const visiblePresetIds = useMemo(() => visiblePresets.map((preset) => preset.id), [visiblePresets]);
+  const visiblePresets = useMemo(() => filterPresets(presets, query), [presets, query]);
+  const visiblePresetIds = useMemo(() => getPresetIds(visiblePresets), [visiblePresets]);
   const selectionState = getPresetSelectionState(selectedPresetIds, visiblePresetIds);
   const transferPlan = useMemo<TransferPlan | null>(() => {
     if (!transferMode) return null;
@@ -1938,32 +1568,14 @@ function PresetLibrary({
       }}
     >
       <section ref={libraryRef} className="preset-library" role="dialog" aria-modal="true" aria-labelledby="preset-library-title" aria-busy={libraryBusy}>
-        <div className="preset-library-header">
-          <div>
-            <span className="eyebrow">Saved target combinations</span>
-            <h2 id="preset-library-title">Presets <b>{presets.length}</b></h2>
-          </div>
-          <button type="button" className="icon-button subtle" onClick={closeLibrary} aria-label="Close presets" disabled={libraryBusy}>
-            <X size={15} />
-          </button>
-        </div>
-
-        {activePresetId && (
-          <div className={`preset-library-status ${activePresetDirty ? 'is-dirty' : ''}`}>
-            <Bookmark size={13} />
-            <span>
-              Active preset: <strong>{presets.find((preset) => preset.id === activePresetId)?.name ?? 'unknown'}</strong>
-            </span>
-            {activePresetDirty && <em>edited</em>}
-          </div>
-        )}
-
-        {applyingPresetId && (
-          <div className="preset-library-status is-pending" aria-live="polite">
-            <RefreshCw size={13} className="spinning" />
-            <span>Loading pods for <strong>{presets.find((preset) => preset.id === applyingPresetId)?.name ?? 'selected preset'}</strong>...</span>
-          </div>
-        )}
+        <PresetLibraryHeader
+          presets={presets}
+          activePresetId={activePresetId}
+          activePresetDirty={activePresetDirty}
+          applyingPresetId={applyingPresetId}
+          busy={libraryBusy}
+          onClose={closeLibrary}
+        />
 
         {deleteError && <p className="preset-library-feedback is-error" role="alert">{deleteError}</p>}
 

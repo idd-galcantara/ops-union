@@ -1,0 +1,416 @@
+/* ---------- Shell ---------- */
+
+.app-shell {
+  /*
+   * Locked to the viewport so the panels below own their own scrolling. Without
+   * a fixed height the log output would keep growing and push the page instead
+   * of scrolling in place.
+   */
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+.topbar {
+  height: 66px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 30px;
+  padding: 0 24px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+}
+
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.brand-lockup:focus-visible {
+  border-radius: 8px;
+  outline: 2px solid rgba(223, 112, 69, 0.45);
+  outline-offset: 5px;
+}
+
+.brand-lockup:hover .brand-mark {
+  background: var(--accent);
+}
+
+.brand-mark {
+  width: 31px;
+  height: 31px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: var(--ink);
+  border-radius: 8px;
+}
+
+.brand-lockup strong {
+  display: block;
+  font-size: 14px;
+  letter-spacing: -0.3px;
+}
+
+.brand-lockup span {
+  display: block;
+  margin-top: 1px;
+  color: var(--muted);
+  font: 10px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.topbar-status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font: 10px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.topbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar > .workspace-section {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+.topbar > .workspace-section .workspace-quick-controls {
+  width: min(760px, 100%);
+  margin: 0 auto;
+  padding: 3px 0;
+}
+
+.workspace-quick-controls {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.workspace-quick-trigger {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0;
+  overflow: hidden;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.workspace-quick-trigger + .workspace-quick-trigger {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: 0;
+}
+
+.workspace-workspace-quick-trigger {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 5px;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.workspace-preset-control {
+  position: relative;
+  min-width: 0;
+  flex: 0 1 30ch;
+  min-width: 30ch;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+
+.workspace-preset-quick-trigger {
+  width: 100%;
+  flex: 1;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.workspace-quick-trigger:hover,
+.workspace-quick-trigger:focus-visible {
+  color: var(--accent);
+  background: var(--surface-subtle);
+  outline: none;
+}
+
+.workspace-quick-trigger:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+.workspace-quick-trigger .workspace-context-label {
+  flex: 0 0 auto;
+  font-size: 9px;
+}
+
+.workspace-quick-trigger > strong {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-workspace-quick-trigger > strong {
+  flex: 0 1 auto;
+  max-width: min(30ch, calc(100% - 100px));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-quick-trigger > svg {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.workspace-update-button {
+  flex: 0 0 auto;
+  padding: 4px 5px;
+}
+
+.workspace-quick-popover {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(350px, calc(100vw - 28px));
+  padding: 10px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  box-shadow: 0 14px 34px rgb(20 29 39 / 18%);
+}
+
+.workspace-quick-heading {
+  display: block;
+  margin: 1px 4px 7px;
+  color: var(--muted);
+  font: 9px var(--mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.workspace-quick-list {
+  display: grid;
+  gap: 3px;
+  max-height: 270px;
+  overflow-y: auto;
+}
+
+.workspace-quick-item {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 7px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  text-align: left;
+}
+
+.workspace-quick-item:hover:not(:disabled),
+.workspace-quick-item:focus-visible {
+  background: var(--surface-subtle);
+  border-color: var(--accent-soft);
+  outline: none;
+}
+
+.workspace-quick-item.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+}
+
+.workspace-quick-item > svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.workspace-quick-item > span {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 2px;
+}
+
+.workspace-quick-item strong,
+.workspace-quick-item small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-quick-item small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.workspace-quick-item > svg:last-child {
+  color: var(--accent);
+}
+
+.workspace-quick-manager-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 3px 1px;
+  padding: 5px 0;
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+  font: 10px var(--mono);
+}
+
+.workspace-quick-manager-link:hover,
+.workspace-quick-manager-link:focus-visible {
+  color: var(--ink);
+  outline: none;
+}
+
+.workspace-quick-empty {
+  margin: 10px 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.topbar > .workspace-section > .workspace-status {
+  position: absolute;
+  margin-top: 3px;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 3px 6px 3px 7px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.theme-toggle:hover,
+.theme-toggle:focus-visible {
+  color: var(--ink);
+  border-color: var(--accent);
+  outline: none;
+}
+
+.theme-toggle-icon {
+  display: inline-grid;
+  place-items: center;
+}
+
+.theme-toggle-track {
+  position: relative;
+  width: 24px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  background: var(--surface-muted);
+  border-radius: 999px;
+  transition: background 160ms ease;
+}
+
+.theme-toggle-thumb {
+  width: 10px;
+  height: 10px;
+  background: var(--muted);
+  border-radius: 50%;
+  transform: translateX(0);
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.theme-toggle.is-dark .theme-toggle-track {
+  background: var(--accent-soft);
+}
+
+.theme-toggle.is-dark .theme-toggle-thumb {
+  background: var(--accent);
+  transform: translateX(10px);
+}
+
+.topbar-actions .topbar-status {
+  margin-left: 0;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-ok {
+  color: var(--ok-ink);
+  background: var(--ok-soft);
+}
+.status-ok .status-dot {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px #e4f5ec;
+}
+
+.status-error {
+  color: var(--error-ink);
+  background: var(--error-soft);
+}
+.status-error .status-dot {
+  background: var(--error);
+}
+
+.status-loading {
+  color: var(--muted);
+  background: #f0f2f4;
+}
+.status-loading .status-dot {
+  background: var(--muted);
+}
+
+.app-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--sidebar-width, 292px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}

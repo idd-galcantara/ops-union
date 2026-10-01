@@ -1,8 +1,8 @@
-# Requirements - ops-union v1.8.2 large-file modularization
+# Requirements - ops-union v1.9.0 large-file modularization
 
 ## Status and scope
 
-Version 1.8.2 defines a behavior-preserving architecture refactor for the large, highly coupled
+Version 1.9.0 defines a behavior-preserving architecture refactor for the large, highly coupled
 modules identified by the v1.4.0 architecture audit: `frontend/src/components/TargetSelector.tsx`,
 `frontend/src/store.ts`, `frontend/src/components/LogViewer.tsx`, `backend/src/historySession.ts`,
 `desktop/src/main.ts`, `frontend/src/App.tsx`, and `frontend/src/index.css`.

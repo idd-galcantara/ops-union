@@ -1,0 +1,465 @@
+/* ---------- Namespace autocomplete ---------- */
+
+.namespace-input {
+  position: relative;
+}
+
+.namespace-input .inspector-field > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inline-loader {
+  color: var(--accent);
+}
+
+/* ---------- Dedicated logs dark surfaces ---------- */
+
+.app-shell[data-theme='dark'] {
+  --accent-ink: #202735;
+}
+
+.app-shell[data-theme='dark'] .log-viewer,
+.app-shell[data-theme='dark'] .log-workspace-header,
+.app-shell[data-theme='dark'] .log-toolbar,
+.app-shell[data-theme='dark'] .log-range-summary,
+.app-shell[data-theme='dark'] .log-source-inspection,
+.app-shell[data-theme='dark'] .log-footer {
+  color: var(--text-soft);
+  border-color: var(--line-strong);
+}
+
+.app-shell[data-theme='dark'] .log-workspace-header {
+  background: var(--surface);
+}
+
+.app-shell[data-theme='dark'] .log-toolbar {
+  background: var(--surface-subtle);
+}
+
+.app-shell[data-theme='dark'] .log-range-summary {
+  background: var(--surface-muted);
+}
+
+.app-shell[data-theme='dark'] .log-workspace-identity h2,
+.app-shell[data-theme='dark'] .log-source-inspection summary,
+.app-shell[data-theme='dark'] .log-control,
+.app-shell[data-theme='dark'] .log-follow,
+.app-shell[data-theme='dark'] .log-source-option,
+.app-shell[data-theme='dark'] .log-filter input,
+.app-shell[data-theme='dark'] .log-container-select select,
+.app-shell[data-theme='dark'] .log-control select,
+.app-shell[data-theme='dark'] .log-control input {
+  color: var(--ink);
+}
+
+.app-shell[data-theme='dark'] .log-workspace-identity > span:last-child,
+.app-shell[data-theme='dark'] .log-workspace-contexts > div,
+.app-shell[data-theme='dark'] .log-workspace-contexts > div span,
+.app-shell[data-theme='dark'] .log-workspace-stats,
+.app-shell[data-theme='dark'] .log-search-status,
+.app-shell[data-theme='dark'] .log-range-summary,
+.app-shell[data-theme='dark'] .log-sources,
+.app-shell[data-theme='dark'] .log-sources legend,
+.app-shell[data-theme='dark'] .log-source-option small,
+.app-shell[data-theme='dark'] .log-source-inspection summary,
+.app-shell[data-theme='dark'] .log-empty,
+.app-shell[data-theme='dark'] .log-footer {
+  color: var(--muted);
+}
+
+.app-shell[data-theme='dark'] .log-mode-control,
+.app-shell[data-theme='dark'] .log-history-status {
+  color: var(--text-soft);
+  border-color: var(--line-strong);
+}
+
+.app-shell[data-theme='dark'] .log-history-status {
+  background: var(--surface-muted);
+}
+
+.app-shell[data-theme='dark'] .log-history-status strong,
+.app-shell[data-theme='dark'] .log-mode-control legend {
+  color: var(--ink);
+}
+
+.app-shell[data-theme='dark'] .log-control select,
+.app-shell[data-theme='dark'] .log-control input,
+.app-shell[data-theme='dark'] .log-container-select select,
+.app-shell[data-theme='dark'] .log-filter {
+  color: var(--ink);
+  background: var(--field);
+  border-color: var(--line-strong);
+  color-scheme: dark;
+}
+
+.app-shell[data-theme='dark'] .log-filter {
+  color: var(--text-soft);
+}
+
+.app-shell[data-theme='dark'] .log-filter input::placeholder,
+.app-shell[data-theme='dark'] .source-modal-search input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.app-shell[data-theme='dark'] .log-filter:focus-within {
+  border-color: var(--accent);
+}
+
+.app-shell[data-theme='dark'] .log-control select:focus-visible,
+.app-shell[data-theme='dark'] .log-control input:focus-visible,
+.app-shell[data-theme='dark'] .log-follow input:focus-visible,
+.app-shell[data-theme='dark'] .log-source-option input:focus-visible,
+.app-shell[data-theme='dark'] .log-filter:focus-within,
+.app-shell[data-theme='dark'] .log-output:focus-visible,
+.app-shell[data-theme='dark'] .log-source-inspection summary:focus-visible,
+.app-shell[data-theme='dark'] .source-modal-search input:focus-visible,
+.app-shell[data-theme='dark'] .source-tree input:focus-visible,
+.app-shell[data-theme='dark'] .source-modal button:focus-visible,
+.app-shell[data-theme='dark'] .tree-disclosure:focus-visible {
+  outline: 2px solid var(--accent-hover);
+  outline-offset: 2px;
+}
+
+.app-shell[data-theme='dark'] .log-filter:focus-within {
+  outline: 2px solid var(--accent-hover);
+  outline-offset: 2px;
+}
+
+.app-shell[data-theme='dark'] .log-toolbar .filter-clear,
+.app-shell[data-theme='dark'] .log-source-inspection summary:hover,
+.app-shell[data-theme='dark'] .log-actions .icon-button:hover:not(:disabled),
+.app-shell[data-theme='dark'] .log-workspace-actions .icon-button:hover:not(:disabled),
+.app-shell[data-theme='dark'] .source-modal .icon-button:hover:not(:disabled),
+.app-shell[data-theme='dark'] .tree-disclosure:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+
+.app-shell[data-theme='dark'] .log-toolbar .filter-clear,
+.app-shell[data-theme='dark'] .log-filter .filter-clear {
+  color: var(--muted);
+}
+
+.app-shell[data-theme='dark'] .log-viewer .primary-button,
+.app-shell[data-theme='dark'] .source-modal .primary-button {
+  color: var(--accent-ink);
+}
+
+.app-shell[data-theme='dark'] .log-viewer .secondary-button,
+.app-shell[data-theme='dark'] .source-modal .secondary-button,
+.app-shell[data-theme='dark'] .log-viewer .text-button,
+.app-shell[data-theme='dark'] .source-modal .text-button {
+  color: var(--accent-hover);
+}
+
+.app-shell[data-theme='dark'] .log-viewer button:disabled,
+.app-shell[data-theme='dark'] .source-modal button:disabled {
+  color: var(--muted);
+  background: var(--surface-muted);
+  border-color: var(--line);
+  opacity: 0.7;
+}
+
+.app-shell[data-theme='dark'] .log-viewer .feedback-loading,
+.app-shell[data-theme='dark'] .log-viewer .feedback-error,
+.app-shell[data-theme='dark'] .log-validation-error,
+.app-shell[data-theme='dark'] .log-partial-summary {
+  border-color: var(--line-strong);
+}
+
+.app-shell[data-theme='dark'] .log-viewer .feedback-loading {
+  color: var(--text-soft);
+  background: var(--surface-subtle);
+}
+
+.app-shell[data-theme='dark'] .log-viewer .feedback-error,
+.app-shell[data-theme='dark'] .log-validation-error,
+.app-shell[data-theme='dark'] .log-partial-summary {
+  color: var(--error-ink);
+  background: var(--error-soft);
+}
+
+.app-shell[data-theme='dark'] .log-validation-error strong,
+.app-shell[data-theme='dark'] .log-partial-summary strong {
+  color: var(--ink);
+}
+
+.app-shell[data-theme='dark'] .log-state-streaming {
+  color: var(--ok-ink);
+  background: var(--ok-soft);
+}
+
+.app-shell[data-theme='dark'] .log-state-connecting,
+.app-shell[data-theme='dark'] .log-state-validating,
+.app-shell[data-theme='dark'] .log-state-ended {
+  color: var(--text-soft);
+  background: var(--surface-muted);
+}
+
+.app-shell[data-theme='dark'] .log-state-paused,
+.app-shell[data-theme='dark'] .log-state-partial {
+  color: var(--warn-ink);
+  background: var(--warn-soft);
+}
+
+.app-shell[data-theme='dark'] .log-state-error {
+  color: var(--error-ink);
+  background: var(--error-soft);
+}
+
+.app-shell[data-theme='dark'] .log-state-streaming .status-dot {
+  background: var(--ok);
+}
+
+.app-shell[data-theme='dark'] .log-state-connecting .status-dot,
+.app-shell[data-theme='dark'] .log-state-validating .status-dot,
+.app-shell[data-theme='dark'] .log-state-ended .status-dot {
+  background: var(--text-soft);
+}
+
+.app-shell[data-theme='dark'] .log-state-paused .status-dot,
+.app-shell[data-theme='dark'] .log-state-partial .status-dot {
+  background: var(--warn);
+}
+
+.app-shell[data-theme='dark'] .log-state-error .status-dot {
+  background: var(--error);
+}
+
+.app-shell[data-theme='dark'] .log-output {
+  background: #1f2734;
+  color: #e6ebf2;
+}
+
+.app-shell[data-theme='dark'] .log-source-cell strong {
+  color: #f1b08e;
+}
+
+.app-shell[data-theme='dark'] .log-source-cell small {
+  color: #b8c4d3;
+}
+
+.app-shell[data-theme='dark'] .log-message {
+  color: #f0f4f8;
+}
+
+.app-shell[data-theme='dark'] .log-mark {
+  color: #1f2734;
+  background: #ffd48a;
+}
+
+.app-shell[data-theme='dark'] .log-footer {
+  color: var(--muted);
+  background: var(--surface);
+}
+
+.app-shell[data-theme='dark'] .source-modal-backdrop {
+  background: rgba(11, 16, 23, 0.72);
+}
+
+.app-shell[data-theme='dark'] .source-modal {
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--line-strong);
+  box-shadow: 0 22px 65px rgba(0, 0, 0, 0.45);
+}
+
+.app-shell[data-theme='dark'] .source-modal-header,
+.app-shell[data-theme='dark'] .source-details > summary,
+.app-shell[data-theme='dark'] .source-modal-footer {
+  background: var(--surface-subtle);
+  border-color: var(--line-strong);
+}
+
+.app-shell[data-theme='dark'] .source-scope-summary,
+.app-shell[data-theme='dark'] .source-modal-toolbar {
+  background: var(--surface);
+  border-color: var(--line);
+}
+
+.app-shell[data-theme='dark'] .source-scope-identity strong,
+.app-shell[data-theme='dark'] .source-details > summary,
+.app-shell[data-theme='dark'] .source-tree-root,
+.app-shell[data-theme='dark'] .source-tree-row > strong,
+.app-shell[data-theme='dark'] .source-tree-label strong {
+  color: var(--ink);
+}
+
+.app-shell[data-theme='dark'] .source-modal-identity,
+.app-shell[data-theme='dark'] .source-scope-identity code,
+.app-shell[data-theme='dark'] .source-scope-contexts span:not(.summary-label),
+.app-shell[data-theme='dark'] .source-scope-stats,
+.app-shell[data-theme='dark'] .source-scope-actions,
+.app-shell[data-theme='dark'] .source-modal-count,
+.app-shell[data-theme='dark'] .source-tree-count,
+.app-shell[data-theme='dark'] .source-modal-footer-note {
+  color: var(--muted);
+}
+
+.app-shell[data-theme='dark'] .source-scope-state,
+.app-shell[data-theme='dark'] .source-tree-container {
+  color: var(--text-soft);
+}
+
+.app-shell[data-theme='dark'] .source-modal-search input {
+  color: var(--ink);
+  background: var(--field);
+  border-color: var(--line-strong);
+  color-scheme: dark;
+}
+
+.app-shell[data-theme='dark'] .source-modal-warning,
+.app-shell[data-theme='dark'] .source-modal-partial {
+  border-color: var(--line-strong);
+}
+
+.app-shell[data-theme='dark'] .source-modal-warning {
+  color: var(--warn-ink);
+  background: var(--warn-soft);
+}
+
+.app-shell[data-theme='dark'] .source-modal-partial {
+  color: var(--error-ink);
+  background: var(--error-soft);
+}
+
+.app-shell[data-theme='dark'] .source-modal .feedback-loading {
+  color: var(--text-soft);
+  background: var(--surface-subtle);
+}
+
+.app-shell[data-theme='dark'] .source-modal .feedback-error {
+  color: var(--error-ink);
+  background: var(--error-soft);
+  border-color: var(--line-strong);
+}
+
+.app-shell[data-theme='dark'] .source-tree-root {
+  background: var(--accent-soft);
+}
+
+.app-shell[data-theme='dark'] .source-tree-context-row:hover,
+.app-shell[data-theme='dark'] .source-tree-pod > .source-tree-row:hover,
+.app-shell[data-theme='dark'] .source-tree-container:hover {
+  background: var(--hover);
+}
+
+.app-shell[data-theme='dark'] .source-tree-children {
+  border-color: var(--line-strong);
+}
+
+.app-shell[data-theme='dark'] .source-modal .role-sidecar,
+.app-shell[data-theme='dark'] .source-modal .source-fallback {
+  color: var(--warn-ink) !important;
+}
+
+.app-shell[data-theme='dark'] .source-modal .role-primary {
+  color: var(--ok-ink) !important;
+}
+
+.namespace-count {
+  margin-left: auto;
+  padding: 2px 5px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 10px;
+  font: 8px var(--mono);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.namespace-valid {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+  color: var(--ok-ink);
+  font: 9px var(--mono);
+}
+
+.namespace-valid.is-partial {
+  color: var(--warn-ink);
+}
+
+.namespace-note {
+  margin: 0;
+  padding: 8px 9px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.namespace-suggestions {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% - 4px);
+  right: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid #e1e5ea;
+  border-radius: 6px;
+  box-shadow: 0 10px 24px rgba(28, 34, 45, 0.14);
+}
+
+.namespace-suggestion-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 2px 5px 5px;
+  border-bottom: 1px solid #eef0f3;
+}
+
+.namespace-suggestion-actions .text-button {
+  padding: 2px 0;
+  font-size: 8px;
+}
+
+.namespace-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  text-align: left;
+  color: #445064;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font: 10px var(--mono);
+}
+
+.namespace-option:hover,
+.namespace-option.is-active {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.namespace-option-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.namespace-option-reach {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  color: var(--muted);
+  background: #f1f3f6;
+  border-radius: 3px;
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.namespace-option-reach.is-all {
+  color: var(--ok-ink);
+  background: var(--ok-soft);
+}

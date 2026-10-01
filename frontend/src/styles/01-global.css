@@ -1,0 +1,81 @@
+:root {
+
+  --ink: #202735;
+  --muted: #7d8799;
+  --line: #e3e6eb;
+  --panel: #fbfbfc;
+  --canvas: #f5f6f8;
+  --navy: #334258;
+
+  --accent: #df7045;
+  --accent-soft: #fff0ea;
+  --accent-hover: #ca5e37;
+
+  --ok: #5cb78a;
+  --ok-soft: #e4f5ec;
+  --ok-ink: #4f896e;
+  --warn: #d7b06a;
+  --warn-soft: #fffaf0;
+  --warn-ink: #946f35;
+  --error: #bd5d58;
+  --error-soft: #fff5f4;
+  --error-ink: #a94f4a;
+  --info: #6685a4;
+
+  --surface: #fff;
+  --surface-subtle: #fafbfc;
+  --surface-muted: #f0f2f4;
+  --field: #fff;
+  --hover: #eef0f3;
+  --text-soft: #687486;
+  --line-strong: #d3d8de;
+
+  --mono: 'DM Mono', ui-monospace, Consolas, monospace;
+  --sans: 'Manrope', system-ui, 'Segoe UI', Roboto, sans-serif;
+
+  font-family: var(--sans);
+  color: var(--ink);
+  background: #f3f4f6;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.spinning {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -1,0 +1,684 @@
+/* ---------- Application log source modal ---------- */
+
+.source-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(32, 39, 53, 0.42);
+}
+
+.source-modal {
+  width: min(820px, 100%);
+  max-height: min(760px, 92vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  box-shadow: 0 22px 65px rgba(32, 39, 53, 0.2);
+  outline: none;
+}
+
+.source-modal-header,
+.source-modal-toolbar,
+.source-modal-footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.source-modal-header {
+  justify-content: space-between;
+  background: var(--surface-subtle);
+}
+
+.source-modal-header h2 {
+  margin: 3px 0 0;
+  font-size: 17px;
+  letter-spacing: -0.4px;
+}
+
+.source-modal-identity {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font: 9px var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.source-scope-summary {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(180px, 1.2fr);
+  gap: 12px;
+  padding: 14px 18px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.source-scope-identity,
+.source-scope-contexts {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 3px;
+}
+
+.source-scope-identity strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.source-scope-identity code,
+.source-scope-contexts span:not(.summary-label) {
+  color: var(--muted);
+  font: 9px var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.source-scope-stats,
+.source-scope-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  color: var(--muted);
+  font: 9px var(--mono);
+}
+
+.source-scope-stats strong {
+  color: var(--ink);
+}
+
+.source-scope-actions {
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.source-scope-actions .secondary-button {
+  min-height: 28px;
+}
+
+.source-scope-state {
+  grid-column: 1 / -1;
+  color: var(--text-soft);
+  font-size: 10px;
+}
+
+.source-details {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.source-details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 18px;
+  color: var(--ink);
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 800;
+  list-style-position: inside;
+}
+
+.source-details > summary span {
+  color: var(--muted);
+  font: 9px var(--mono);
+  font-weight: 400;
+}
+
+.source-context-sidecars {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: 8px;
+}
+
+.source-modal-toolbar {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  background: var(--surface);
+}
+
+.source-modal-search {
+  min-width: min(360px, 100%);
+  flex: 1;
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font: 8px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.35px;
+}
+
+.source-modal-search input {
+  min-height: 30px;
+  padding: 0 8px;
+  color: var(--ink);
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font: 10px var(--sans);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.source-modal-search input:focus-visible,
+.source-tree input:focus-visible,
+.source-modal button:focus-visible {
+  outline: 2px solid rgba(223, 112, 69, 0.55);
+  outline-offset: 2px;
+}
+
+.source-modal-count,
+.source-tree-count {
+  color: var(--muted);
+  font: 9px var(--mono);
+  white-space: nowrap;
+}
+
+.source-selection-action {
+  flex: 0 0 auto;
+  padding: 4px 0;
+  font-size: 9px;
+}
+
+.source-modal-warning,
+.source-modal-partial {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 18px;
+  color: var(--warn-ink);
+  background: var(--warn-soft);
+  border-bottom: 1px solid #ead9b1;
+  font-size: 10px;
+}
+
+.source-modal-partial {
+  display: grid;
+  gap: 3px;
+  color: var(--error-ink);
+  background: var(--error-soft);
+  border-bottom-color: #f0ceca;
+}
+
+.source-tree {
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px 14px;
+}
+
+.source-tree-root,
+.source-tree-row {
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+  border-radius: 4px;
+}
+
+.source-tree-root {
+  color: var(--ink);
+  background: var(--accent-soft);
+}
+
+.source-tree-context-row:hover,
+.source-tree-pod > .source-tree-row:hover {
+  background: var(--hover);
+}
+
+.source-tree-row input,
+.source-tree-container input {
+  flex: 0 0 auto;
+  accent-color: var(--accent);
+}
+
+.tree-disclosure {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+}
+
+.tree-disclosure:hover {
+  color: var(--ink);
+  background: var(--hover);
+}
+
+.tree-disclosure.is-static {
+  pointer-events: none;
+}
+
+.source-tree-label {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.source-tree-label strong,
+.source-tree-row > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-tree-context-row > strong {
+  flex: 1;
+}
+
+.source-tree-children {
+  margin-left: 22px;
+  padding-left: 9px;
+  border-left: 1px solid var(--line);
+}
+
+.source-tree-container {
+  min-height: 31px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 7px;
+  color: var(--text-soft);
+  font-size: 10px;
+}
+
+.source-tree-container span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-tree-container small,
+.source-fallback {
+  margin-left: auto;
+  color: var(--muted);
+  font: 8px var(--mono);
+  white-space: nowrap;
+}
+
+.role-sidecar,
+.source-fallback {
+  color: var(--warn-ink) !important;
+}
+
+.role-primary {
+  color: var(--ok-ink) !important;
+}
+
+.source-modal-footer {
+  justify-content: space-between;
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+  background: var(--surface-subtle);
+}
+
+.source-modal-footer-note {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.source-modal-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ---------- Selected-source summary and viewer filters ---------- */
+
+.log-source-summary {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(120px, 1.35fr);
+  gap: 9px 12px;
+  padding: 11px 18px;
+  color: var(--text-soft);
+  background: var(--surface-subtle);
+  border-bottom: 1px solid var(--line);
+  font-size: 10px;
+}
+
+.log-source-summary > div:first-child,
+.log-summary-contexts {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.log-source-summary strong {
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-source-summary small,
+.log-summary-contexts span:not(.summary-label) {
+  color: var(--muted);
+  font: 8px var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.summary-label {
+  color: var(--muted);
+  font: 8px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.log-summary-counts {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  color: var(--muted);
+  font: 9px var(--mono);
+}
+
+.log-source-summary > .secondary-button {
+  justify-self: start;
+}
+
+.log-structured-filters {
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.log-filter-select {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 150px;
+}
+
+.log-filter-select select {
+  width: 100%;
+  min-width: 0;
+  padding-right: 32px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.log-filter-select[data-state='selected'] select {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.log-filter {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1 1 160px;
+  height: 26px;
+  gap: 5px;
+  padding: 0 6px 0 6px;
+  padding-right: 32px;
+  color: var(--muted);
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.log-filter input {
+  min-width: 0;
+  width: 100%;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: var(--ink);
+  background: transparent;
+  font: 9px var(--mono);
+}
+
+.log-toolbar .filter-clear {
+  position: absolute;
+  right: 3px;
+  bottom: 1px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  z-index: 1;
+}
+
+.log-toolbar .filter-clear:hover {
+  color: var(--ink);
+}
+
+.log-toolbar .filter-clear:focus-visible {
+  color: var(--ink);
+  outline: 2px solid rgba(223, 112, 69, 0.55);
+  outline-offset: 1px;
+}
+
+@media (max-width: 560px) {
+  .source-modal-backdrop {
+    place-items: end center;
+    padding: 0;
+  }
+
+  .source-modal {
+    width: 100%;
+    max-height: 94vh;
+    border-radius: 8px 8px 0 0;
+  }
+
+  .source-modal-header,
+  .source-modal-toolbar,
+  .source-modal-footer {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .source-modal-footer {
+    align-items: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .source-modal-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .source-tree {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  .source-scope-summary {
+    grid-template-columns: 1fr;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .source-scope-stats,
+  .source-scope-actions,
+  .source-scope-state {
+    grid-column: auto;
+  }
+
+  .source-scope-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .source-scope-actions .secondary-button {
+    width: 100%;
+  }
+
+  .source-details > summary {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .source-tree-children {
+    margin-left: 12px;
+  }
+
+  .source-tree-container small,
+  .source-fallback {
+    display: none;
+  }
+
+  .log-source-summary {
+    grid-template-columns: 1fr;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .log-source-summary > .secondary-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .log-filter-select,
+  .log-filter-select select,
+  .log-filter {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .log-toolbar-actions {
+    align-items: flex-start;
+  }
+
+  .log-mode-control {
+    flex: 1 1 180px;
+  }
+
+  .log-search-cluster {
+    width: 100%;
+  }
+
+  .log-search-cluster .log-grouping,
+  .log-search-cluster .log-search-button {
+    flex: 1 1 0;
+  }
+}
+@media (max-width: 1000px) {
+  /* Stacked layout needs the page itself to scroll again. */
+  .app-shell {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  .app-body.has-details {
+    grid-template-columns: 1fr;
+  }
+
+  .details-panel {
+    min-height: 560px;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  /* Stacked panels are full width, so horizontal resizing makes no sense. */
+  .details-resize-handle {
+    display: none;
+  }
+
+  .sidebar-resize-handle {
+    display: none;
+  }
+
+  .log-output {
+    max-height: 60vh;
+  }
+
+  .log-range-summary {
+    line-height: 1.45;
+  }
+
+  .log-history-status {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .log-history-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .log-event-meta {
+    flex-basis: 100%;
+    display: flex;
+  }
+
+  .structured-log-line {
+    display: grid;
+    gap: 2px;
+  }
+}
+
+@media (max-width: 560px) {
+  .log-toolbar {
+    padding: 9px 10px;
+  }
+
+  .log-range-fields {
+    width: 100%;
+  }
+
+  .log-range-fields .log-control,
+  .log-range-fields input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .log-sources {
+    max-height: 116px;
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .log-source-option {
+    width: 100%;
+  }
+
+  .log-source-option span {
+    max-width: calc(100vw - 58px);
+  }
+
+  .log-output {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .log-footer {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    line-height: 1.45;
+  }
+}
