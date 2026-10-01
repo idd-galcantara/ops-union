@@ -17,8 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  package-linux:
-    name: Package Linux
+  validate:
+    name: Validate repository
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -33,8 +33,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run security and workspace gates
+      - name: Run security, dependency, and workspace gates
         run: npm run security:prepackage
+
+  package-linux:
+    name: Package Linux
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26.10.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Build Linux packages
         run: npm run package:linux
@@ -54,6 +71,7 @@ jobs:
 
   package-windows:
     name: Package Windows
+    needs: validate
     runs-on: windows-latest
     steps:
       - name: Check out repository
@@ -67,9 +85,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Run security and workspace gates
-        run: npm run security:prepackage
 
       - name: Build Windows installer
         run: npm run package:win
@@ -87,6 +102,7 @@ jobs:
 
   package-macos:
     name: Package macOS
+    needs: validate
     runs-on: macos-latest
     steps:
       - name: Check out repository
@@ -100,9 +116,6 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-
-      - name: Run security and workspace gates
-        run: npm run security:prepackage
 
       - name: Build macOS packages
         run: npm run package:mac

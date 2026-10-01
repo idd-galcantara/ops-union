@@ -2,7 +2,7 @@
   "name": "ops-union",
   "desktopName": "ops-union",
   "private": true,
-  "version": "1.13.0",
+  "version": "1.14.0",
   "description": "Local, read-only Kubernetes workload viewer.",
   "homepage": "https://github.com/idd-galcantara/ops-union",
   "author": {
@@ -30,7 +30,9 @@
     "package:win": "npm run build && node scripts/prepare-desktop-runtime.mjs && electron-builder --config electron-builder.yml --win nsis --publish never",
     "build": "npm run build --workspace=backend && npm run build --workspace=frontend && npm run build --workspace=desktop",
     "typecheck": "npm run typecheck --workspace=backend && npm run typecheck --workspace=frontend && npm run typecheck --workspace=desktop",
-    "security:prepackage": "npm audit --omit=dev && npm run typecheck && npm test --workspace=backend && npm test --workspace=frontend && npm run build"
+    "validate:toolchain": "node scripts/validate-toolchain.mjs",
+    "validate:dependencies": "node scripts/validate-dependencies.mjs",
+    "security:prepackage": "npm run validate:toolchain && npm run validate:dependencies && npm audit --omit=dev --audit-level=high && npm audit --audit-level=high && npm run typecheck && npm test --workspace=backend && npm test --workspace=frontend && npm run build"
   },
   "overrides": {
     "ip-address": "10.7.2"

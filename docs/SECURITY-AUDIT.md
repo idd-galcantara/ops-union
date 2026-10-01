@@ -31,6 +31,23 @@ This report updates SEC-001 through SEC-011 from the v1.9.0 baseline. It records
 evidence and source review without collecting kubeconfig content, credentials, certificates, raw
 cluster responses, or live Kubernetes data.
 
+## Current CI validation controls
+
+The v1.14.0 delivery controls add a single upstream `Validate repository` job before platform
+packaging. After `npm ci`, it validates the Node.js/npm engine ranges, checks the complete workspace
+dependency tree, reports outdated packages, runs production and full-tree `npm audit` with a high
+and critical severity gate, and executes typecheck, backend/frontend tests, and the root build.
+Linux, Windows, and macOS package jobs require this validation job to pass.
+
+Dependency-related pull requests also run GitHub Dependency Review with a high-severity failure
+threshold. Dependabot monitors npm and GitHub Actions. These controls do not access kubeconfig,
+cluster data, credentials, or release secrets.
+
+Local evidence for this change: `npm audit --omit=dev` reported `0 vulnerabilities`, the workspace
+tree resolved without invalid packages, both new validator scripts passed syntax checks, and the
+toolchain validator passed under Node.js `26.10.0`/npm `11.6.2`. The current shell's Node.js
+`25.2.1` is intentionally rejected by the runtime gate until the supported runtime is selected.
+
 ## Threat model and boundary review
 
 Ops Union remains a local Electron application. Electron Main starts the backend, the backend is

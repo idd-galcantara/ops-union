@@ -56,6 +56,10 @@ Electron, o acesso read-only ao Kubernetes, as dependencias e os riscos residuai
 no [relatorio de auditoria de seguranca](docs/SECURITY-AUDIT.md). O documento tambem lista as
 evidencias verificadas, limitacoes da revisao e recomendacoes de acompanhamento.
 
+A esteira valida o contrato Node.js/npm, a arvore de dependencias, o lockfile e advisories antes de
+empacotar. Vulnerabilidades altas ou criticas bloqueiam o pipeline; dependencias desatualizadas sao
+reportadas para manutencao. Mudancas de dependencias em pull requests passam por Dependency Review.
+
 ## Visao geral
 
 ```mermaid

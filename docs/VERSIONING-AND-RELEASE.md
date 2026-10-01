@@ -21,6 +21,13 @@ Na release automatica, o workflow:
 Nao e necessario criar ou publicar a Release manualmente. O `electron-builder` continua usando
 `--publish never`; a publicacao e feita pelo proprio workflow depois que os tres builds passam.
 
+Antes do empacotamento, o job `Validate repository` executa `npm ci`, valida as versoes de Node.js
+e npm contra `package.json`, verifica a arvore de workspaces, informa dependencias desatualizadas,
+executa auditorias de producao e da arvore completa com bloqueio para severidade alta ou critica,
+e roda typecheck, testes e build. Os jobs Linux, Windows e macOS so iniciam depois desse gate.
+Pull requests que alteram manifests ou o lockfile tambem passam por Dependency Review; Dependabot
+acompanha npm e GitHub Actions.
+
 ## Versionamento semantico
 
 Escolha o proximo numero conforme o tipo de mudanca:
@@ -62,10 +69,20 @@ Execute as validacoes:
 
 ```bash
 npm ci
+npm run validate:toolchain
+npm run validate:dependencies
+npm audit --omit=dev --audit-level=high
+npm audit --audit-level=high
 npm run typecheck
 npm test --workspace=backend
 npm test --workspace=frontend
+npm run build
 ```
+
+Os comandos de validacao devem ser executados com Node.js `26.10.0` e npm `11.6.2`, conforme o
+contrato declarado no `package.json`. Dependencias desatualizadas sao reportadas para manutencao,
+mas nao bloqueiam a release por si so; arvore invalida, auditoria alta/critica e falhas de qualidade
+bloqueiam.
 
 Revise o diff e crie o commit da versao:
 
