@@ -80,7 +80,8 @@ npm run build
 ```
 
 Os comandos de validacao devem ser executados com Node.js `26.10.0` e npm `11.6.2`, conforme o
-contrato declarado no `package.json`. Dependencias desatualizadas sao reportadas para manutencao,
+contrato declarado no `package.json`. A workflow fixa explicitamente o npm, pois o runner pode
+fornecer uma versao diferente junto do Node.js. Dependencias desatualizadas sao reportadas para manutencao,
 mas nao bloqueiam a release por si so; arvore invalida, auditoria alta/critica e falhas de qualidade
 bloqueiam.
 

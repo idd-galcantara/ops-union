@@ -75,8 +75,9 @@ migrations, dependency upgrades, Kubernetes mutation, or release publication.
   - _Requirements: SEC-001.1-SEC-003.3, SEC-005.1-SEC-005.3
   - _Validation: full root gate, version/lockfile consistency, and final diff review.
   - _Definition of done: v1.14.0 is prepared locally with executable evidence and no publication claim.
-  - _Evidence: Clean `npm ci` and the full `security:prepackage` gate passed under Node `26.10.0`
-    and npm `11.6.2`; production and full-tree audits reported no blocking advisories, backend
-    tests passed `104/104`, frontend tests passed `148/148`, typechecks and build passed. Root
-    `package.json` and `package-lock.json` now resolve to `1.14.0`; no commit, tag, push, or
-    GitHub Release was created.
+  - _Evidence: Local clean `npm ci` and the full `security:prepackage` gate passed under Node
+    `26.10.0` and npm `11.6.2`; production and full-tree audits reported no blocking advisories,
+    backend tests passed `104/104`, frontend tests passed `148/148`, typechecks and build passed.
+    The first tagged CI run correctly rejected the runner's bundled npm `11.19.1`; all workflow
+    jobs now pin npm `11.6.2` before installation and validation. Root `package.json` and
+    `package-lock.json` resolve to the follow-up patch candidate `1.14.1`.
