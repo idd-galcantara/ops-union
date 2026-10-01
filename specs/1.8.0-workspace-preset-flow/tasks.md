@@ -19,7 +19,7 @@ SHALL be added only after execution.
 
 ## Phase 1 - Baseline and Save as new flow
 
-- [ ] 1.8.0-WPF-1 Record the existing Preset/Workspace flow boundaries.
+- [x] 1.8.0-WPF-1 Record the existing Preset/Workspace flow boundaries.
   - Identify the current Save as new trigger/modal, import modal and final-name input, Workspace
     import/select store action, operational reset/query revision helpers, feedback state, and focused
     tests. Record existing worktree changes without reverting them.
@@ -33,7 +33,7 @@ SHALL be added only after execution.
     this task file. No source or Kubernetes mutation is permitted for the baseline.
   - _Definition of done: each correction has a named owner, state boundary, and discriminating test.
 
-- [ ] 1.8.0-WPF-2 Standardize Save as new modal composition and command placement.
+- [x] 1.8.0-WPF-2 Standardize Save as new modal composition and command placement.
   - Move or route Save as new into the existing preset command area outside the row below search.
   - Reuse the established save/edit modal shell, field/action geometry, validation/status region,
     focus behavior, and pending duplicate-submit convention.
@@ -50,7 +50,7 @@ SHALL be added only after execution.
 
 ## Phase 2 - Import editing and feedback lifecycle
 
-- [ ] 1.8.0-WPF-3 Preserve final Workspace name value and focus while typing.
+- [x] 1.8.0-WPF-3 Preserve final Workspace name value and focus while typing.
   - Keep one authoritative controlled final-name value for the mounted import modal and prevent
     keystroke-driven remounts or key changes that replace the input node.
   - Ensure submit reads the latest value, validation preserves the draft, and accessible label,
@@ -65,7 +65,7 @@ SHALL be added only after execution.
   - _Definition of done: continuous keyboard editing does not lose focus, value, or the current
     validation context.
 
-- [ ] 1.8.0-WPF-4 Make import feedback transient and flow-scoped.
+- [x] 1.8.0-WPF-4 Make import feedback transient and flow-scoped.
   - Clear success, pending presentation, and stale flow-local messages at close, cancel, Escape,
     backdrop dismissal, and the existing settled completion boundary without hiding an actionable
     error prematurely.
@@ -83,7 +83,7 @@ SHALL be added only after execution.
 
 ## Phase 3 - Imported Workspace operational reconciliation
 
-- [ ] 1.8.0-WPF-5 Reset stale operational state when selecting an imported Workspace without an
+- [x] 1.8.0-WPF-5 Reset stale operational state when selecting an imported Workspace without an
       active preset.
   - Route import selection through the existing store/query transition owner rather than clearing
     pods independently in the component.
@@ -105,7 +105,7 @@ SHALL be added only after execution.
 
 ## Phase 4 - Regression, accessibility, and boundary review
 
-- [ ] 1.8.0-WPF-6 Run focused end-to-end frontend regression scenarios.
+- [x] 1.8.0-WPF-6 Run focused end-to-end frontend regression scenarios.
   - Exercise Save as new open/edit/validate/cancel/confirm, import name editing, import/select with
     and without an active preset, populated prior pods, stale in-flight response, failure, cancel,
     close, Escape, backdrop, repeated open, and pending duplicate actions.
@@ -120,7 +120,7 @@ SHALL be added only after execution.
   - _Definition of done: user-visible layout, focus, reset, feedback, and regression behavior has
     explicit pass/fail/unavailable evidence.
 
-- [ ] 1.8.0-WPF-7 Audit ownership and read-only platform boundaries.
+- [x] 1.8.0-WPF-7 Audit ownership and read-only platform boundaries.
   - Confirm one owner for modal draft/focus, catalog import, operational reset, stale-response guards,
     and transient feedback; confirm no duplicate store or modal state is introduced.
   - Confirm no backend route, REST/WebSocket change, renderer filesystem access, credential exposure,
@@ -133,7 +133,7 @@ SHALL be added only after execution.
     finding record if a boundary differs from this design.
   - _Definition of done: ownership and platform constraints are verified without source mutation.
 
-- [ ] 1.8.0-WPF-8 Run automated validation and converge this specification.
+- [x] 1.8.0-WPF-8 Run automated validation and converge this specification.
   - Run focused tests after any repair, relevant frontend tests, frontend typecheck/build, available
     accessibility/regression checks, and `git diff --check`.
   - Update this file only with actual commands/results after implementation and validation. Preserve
@@ -166,5 +166,18 @@ SHALL be added only after execution.
 
 ## Validation record
 
-No implementation or validation evidence exists yet. This section SHALL be appended during task
-execution; proposed commands and acceptance criteria above are not evidence of completion.
+Implementation and validation evidence is recorded below; proposed commands and acceptance criteria
+above are not evidence of completion.
+
+- 2026-09-30: Focused frontend tests passed with `npm test -- --test-name-pattern='Workspace|import|reset|pod queries'` from `frontend` (138 passed, 0 failed), including activated imported-Workspace reset, stale in-flight pod response rejection, and existing non-activating import behavior.
+- 2026-09-30: Full frontend test suite passed with `npm test` from `frontend` (138 passed, 0 failed).
+- 2026-09-30: Frontend typecheck passed with `npm run typecheck` from `frontend`.
+- 2026-09-30: Frontend production build passed with `npm run build` from `frontend`.
+- 2026-09-30: `git diff --check` passed from the repository root; touched frontend files reported no editor diagnostics.
+- 2026-09-30: Browser/desktop keyboard, accessibility, responsive/theme, and visual layout smoke checks were unavailable in the current test setup. Residual risk remains for full interactive and narrow-width rendering coverage; store and source-level modal ownership checks are covered by the automated results above.
+- 2026-09-30: Follow-up implementation routed Save as new through the shared PresetEditor, added controlled import feedback cleanup for file-read failures, and added dialog initial-focus, Tab containment, and focus restoration for import and preset dialogs. Final `npm test` passed (138/138), `npm run typecheck` passed, `npm run build` passed, and `git diff --check` passed.
+- 2026-09-30: Read-only architecture review confirmed store ownership of catalog import, operational reset, and stale-response invalidation, with no backend/API/WebSocket/package/Kubernetes boundary changes. The local browser page opened the Workspace and Preset dialogs and verified their semantic dialog structure; full import/name and narrow-layout smoke remained unavailable because the local API/backend refused `/api/namespaces`.
+- 2026-09-30: Follow-up regression fixed deletion of the active Workspace leaving stale pods visible. The remaining Workspace now goes through the existing operational reset and query-revision invalidation; the focused deletion test passed with the full frontend suite (138/138), production build, and `git diff --check` passing.
+- 2026-09-30: Follow-up preset-flow correction made Save as new reuse only the targets already selected for the current pod query. The create modal no longer offers an add-target row, does not discover namespaces on open, and keeps the existing cluster/namespace pairs valid without another Kubernetes request. Edit preset retains target expansion.
+- 2026-09-30: Follow-up editor correction scoped namespace discovery to the preset's current target clusters plus the cluster currently selected for expansion. Namespace-discovery errors are rendered inside the Edit preset modal instead of behind it in the sidebar; selecting a valid cluster clears the unrelated error path.
+- 2026-09-30: Follow-up editor correction added explicit modal feedback for duplicate cluster/namespace pairs and invalid namespace entries, replacing the previous silent no-op when Add could not change the preset. The final frontend suite passed with 138 tests, `npm run typecheck`, `npm run build`, and `git diff --check` passing.

@@ -222,6 +222,78 @@ test('import creates fresh local preset ids and does not activate by default', (
   }
 });
 
+test('activating an imported Workspace resets operational state and rejects stale pod responses', async () => {
+  const original = useOpsFlowStore.getState();
+  const originalFetch = globalThis.fetch;
+  const first = createDefaultWorkspace([createPreset('Current', [{ cluster: 'c', namespace: 'n' }])]);
+  const stalePod = {
+    cluster: 'live', namespace: 'ns', name: 'stale-pod', status: 'Running', ready: '1/1', restarts: 0,
+    node: 'node', ageSeconds: 1, containers: ['app'], application: { key: 'stale-pod', name: 'stale-pod', source: 'pod' as const },
+  };
+  let resolveFetch!: (response: Response) => void;
+  let queryCount = 0;
+  useOpsFlowStore.setState({
+    workspaces: first.workspaces,
+    activeWorkspaceId: first.activeWorkspaceId,
+    presets: first.workspaces[0].presets,
+    activePresetId: first.workspaces[0].presets[0].id,
+    activePresetDirty: true,
+    targets: [{ cluster: 'live', namespace: 'ns' }],
+    namespaces: [{ name: 'ns', clusters: ['live'] }],
+    namespacesFor: ['live'],
+    namespacesLoading: true,
+    namespacesError: 'stale namespace error',
+    pods: [stalePod],
+    targetErrors: [{ target: { cluster: 'live', namespace: 'ns' }, message: 'stale pod error' }],
+    podsLoading: false,
+    podsError: 'stale query error',
+    refreshing: true,
+    hasQueried: true,
+    lastUpdatedAt: 123,
+    filter: 'stale',
+    configurationRevision: 8,
+    explicitQueryRevision: 12,
+  });
+  globalThis.fetch = async () => {
+    queryCount += 1;
+    return new Promise<Response>((resolve) => { resolveFetch = resolve; });
+  };
+
+  try {
+    const query = useOpsFlowStore.getState().loadPods();
+    const result = parseWorkspaceImport(workspaceDocument('Imported Team'));
+    assert.equal(useOpsFlowStore.getState().importWorkspace(result, 'Imported Team', true), undefined);
+
+    const reset = useOpsFlowStore.getState();
+    assert.equal(queryCount, 1);
+    assert.equal(reset.activeWorkspaceId === first.activeWorkspaceId, false);
+    assert.equal(reset.activePresetId, null);
+    assert.equal(reset.activePresetDirty, false);
+    assert.deepEqual(reset.targets, []);
+    assert.deepEqual(reset.namespaces, []);
+    assert.deepEqual(reset.namespacesFor, []);
+    assert.equal(reset.namespacesLoading, false);
+    assert.equal(reset.namespacesError, undefined);
+    assert.deepEqual(reset.pods, []);
+    assert.deepEqual(reset.targetErrors, []);
+    assert.equal(reset.podsLoading, false);
+    assert.equal(reset.podsError, undefined);
+    assert.equal(reset.refreshing, false);
+    assert.equal(reset.hasQueried, false);
+    assert.equal(reset.lastUpdatedAt, undefined);
+    assert.equal(reset.filter, '');
+    assert.equal(reset.configurationRevision, 9);
+    assert.equal(reset.explicitQueryRevision, 14);
+
+    resolveFetch(new Response(JSON.stringify({ pods: [stalePod], errors: [] }), { status: 200 }));
+    await query;
+    assert.deepEqual(useOpsFlowStore.getState().pods, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+    useOpsFlowStore.setState(original);
+  }
+});
+
 test('import can explicitly overwrite an existing Workspace and clears its active preset', () => {
   const original = useOpsFlowStore.getState();
   const first = createDefaultWorkspace([createPreset('Current', [{ cluster: 'c', namespace: 'n' }])]);
@@ -255,6 +327,17 @@ test('bulk Workspace deletion keeps one Workspace and switches when active is re
     workspaces: [first.workspaces[0], second],
     activeWorkspaceId: first.workspaces[0].id,
     presets: first.workspaces[0].presets,
+    targets: [{ cluster: 'live', namespace: 'ns' }],
+    pods: [{
+      cluster: 'live', namespace: 'ns', name: 'pod', status: 'Running', ready: '1/1', restarts: 0,
+      node: 'node', ageSeconds: 1, containers: ['app'], application: { key: 'pod', name: 'pod', source: 'pod' as const },
+    }],
+    podsLoading: true,
+    podsError: 'stale query error',
+    hasQueried: true,
+    filter: 'stale',
+    configurationRevision: 5,
+    explicitQueryRevision: 4,
   });
 
   try {
@@ -262,6 +345,15 @@ test('bulk Workspace deletion keeps one Workspace and switches when active is re
     assert.equal(useOpsFlowStore.getState().deleteWorkspaces([first.workspaces[0].id]), undefined);
     assert.equal(useOpsFlowStore.getState().activeWorkspaceId, second.id);
     assert.equal(useOpsFlowStore.getState().workspaces.length, 1);
+    const state = useOpsFlowStore.getState();
+    assert.deepEqual(state.targets, []);
+    assert.deepEqual(state.pods, []);
+    assert.equal(state.podsLoading, false);
+    assert.equal(state.podsError, undefined);
+    assert.equal(state.hasQueried, false);
+    assert.equal(state.filter, '');
+    assert.equal(state.configurationRevision, 6);
+    assert.equal(state.explicitQueryRevision, 5);
   } finally {
     useOpsFlowStore.setState(original);
   }

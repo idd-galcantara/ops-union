@@ -15,6 +15,7 @@ interface NamespaceInputProps {
   selectedNamespaces: string[];
   onSelectNamespace: (name: string) => void;
   onRemoveNamespace: (name: string) => void;
+  showError?: boolean;
 }
 
 /**
@@ -32,6 +33,7 @@ export function NamespaceInput({
   selectedNamespaces,
   onSelectNamespace,
   onRemoveNamespace,
+  showError = true,
 }: NamespaceInputProps) {
   const namespaces = useOpsFlowStore((s) => s.namespaces);
   const namespacesFor = useOpsFlowStore((s) => s.namespacesFor);
@@ -219,7 +221,7 @@ export function NamespaceInput({
         </span>
       )}
 
-      {namespacesError && <p className="namespace-note">{namespacesError}</p>}
+      {showError && namespacesError && <p className="namespace-note">{namespacesError}</p>}
 
       {showPanel && (
         <div className="namespace-suggestions" id="namespace-suggestions" role="listbox">

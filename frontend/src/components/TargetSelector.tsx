@@ -55,6 +55,52 @@ interface TargetSelectorProps {
 }
 
 const KEYBOARD_STEP = 24;
+
+function useDialogFocus(
+  open: boolean,
+  dialogRef: React.RefObject<HTMLElement | null>,
+  restoreFocusRef?: React.RefObject<HTMLElement | null>,
+  initialFocusSelector?: string,
+) {
+  useEffect(() => {
+    if (!open) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusableSelector = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+    const first = initialFocusSelector
+      ? dialog.querySelector<HTMLElement>(initialFocusSelector)
+      : dialog.querySelector<HTMLElement>(focusableSelector);
+    (first ?? dialog).focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab') return;
+      const focusable = [...dialog.querySelectorAll<HTMLElement>(focusableSelector)];
+      if (focusable.length === 0) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const firstFocusable = focusable[0];
+      const lastFocusable = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === firstFocusable) {
+        event.preventDefault();
+        lastFocusable.focus();
+      } else if (!event.shiftKey && document.activeElement === lastFocusable) {
+        event.preventDefault();
+        firstFocusable.focus();
+      }
+    };
+
+    dialog.addEventListener('keydown', handleKeyDown);
+    return () => {
+      dialog.removeEventListener('keydown', handleKeyDown);
+      const restoreTarget = restoreFocusRef?.current ?? previousFocus;
+      if (restoreTarget && document.contains(restoreTarget)) restoreTarget.focus();
+    };
+  }, [dialogRef, initialFocusSelector, open, restoreFocusRef]);
+}
+
 /**
  * Builds the list of (cluster, namespace) targets to query.
  *
@@ -93,6 +139,7 @@ export function TargetSelector({
   const [selectedNamespaces, setSelectedNamespaces] = useState<string[]>([]);
   const [selectedClusters, setSelectedClusters] = useState<string[]>([]);
   const [contextFilter, setContextFilter] = useState('');
+  const [presetEditorOpen, setPresetEditorOpen] = useState(false);
 
   useEffect(() => {
     void loadContexts();
@@ -323,6 +370,7 @@ export function TargetSelector({
           selectedNamespaces={selectedNamespaces}
           onSelectNamespace={selectNamespace}
           onRemoveNamespace={removeNamespace}
+          showError={!presetEditorOpen}
         />
         <button
           type="button"
@@ -386,7 +434,11 @@ export function TargetSelector({
         )}
       </div>
 
-      <PresetSection openRequest={openPresetsRequest} resetRequest={resetRequest} />
+      <PresetSection
+        openRequest={openPresetsRequest}
+        resetRequest={resetRequest}
+        onEditorOpenChange={setPresetEditorOpen}
+      />
       </div>
 
       <div className="sidebar-footer">
@@ -420,22 +472,35 @@ export function TargetSelector({
  * Saved target combinations, so a recurring investigation (e.g. "Example preset =
  * cluster-a + cluster-b") can be restored in one click instead of rebuilt every time.
  */
-function PresetSection({ openRequest, resetRequest }: { openRequest: number; resetRequest: number }) {
+function PresetSection({
+  openRequest,
+  resetRequest,
+  onEditorOpenChange,
+}: {
+  openRequest: number;
+  resetRequest: number;
+  onEditorOpenChange: (open: boolean) => void;
+}) {
   const presets = useOpsFlowStore((s) => s.presets);
   const targets = useOpsFlowStore((s) => s.targets);
   const contexts = useOpsFlowStore((s) => s.contexts);
   const activeWorkspace = useOpsFlowStore((s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId));
+  const savePreset = useOpsFlowStore((s) => s.savePreset);
   const updatePreset = useOpsFlowStore((s) => s.updatePreset);
   const activePresetId = useOpsFlowStore((s) => s.activePresetId);
   const activePresetDirty = useOpsFlowStore((s) => s.activePresetDirty);
   const [libraryOpen, setLibraryOpen] = useState(false);
-  const [startNaming, setStartNaming] = useState(false);
+  const [creatingPreset, setCreatingPreset] = useState(false);
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [applyingPresetId, setApplyingPresetId] = useState<string | null>(null);
   const contextNames = useMemo(() => contexts.map((context) => context.name), [contexts]);
 
+  useEffect(() => {
+    onEditorOpenChange(creatingPreset || editingPresetId !== null);
+  }, [creatingPreset, editingPresetId, onEditorOpenChange]);
+
   const openLibrary = (saveCurrent = false) => {
-    setStartNaming(saveCurrent);
+    setCreatingPreset(saveCurrent);
     setLibraryOpen(true);
   };
 
@@ -446,7 +511,7 @@ function PresetSection({ openRequest, resetRequest }: { openRequest: number; res
   useEffect(() => {
     if (resetRequest === 0) return;
     setLibraryOpen(false);
-    setStartNaming(false);
+    setCreatingPreset(false);
     setEditingPresetId(null);
     setApplyingPresetId(null);
   }, [resetRequest]);
@@ -474,15 +539,13 @@ function PresetSection({ openRequest, resetRequest }: { openRequest: number; res
         <PresetLibrary
           presets={presets}
           activeWorkspaceId={activeWorkspace?.id ?? ''}
-          targets={targets}
           activePresetId={activePresetId}
           activePresetDirty={activePresetDirty}
-          startNaming={startNaming}
           applyingPresetId={applyingPresetId}
           onClose={() => {
-            if (editingPresetId || applyingPresetId) return;
+            if (editingPresetId || creatingPreset || applyingPresetId) return;
             setLibraryOpen(false);
-            setStartNaming(false);
+            setCreatingPreset(false);
           }}
           onApply={(id) => {
             if (applyingPresetId) return;
@@ -503,6 +566,7 @@ function PresetSection({ openRequest, resetRequest }: { openRequest: number; res
 
       {editingPresetId && (
         <PresetEditor
+          mode="edit"
           preset={presets.find((preset) => preset.id === editingPresetId) ?? null}
           contexts={contextNames}
           onClose={() => setEditingPresetId(null)}
@@ -510,6 +574,18 @@ function PresetSection({ openRequest, resetRequest }: { openRequest: number; res
             if (!useOpsFlowStore.getState().presets.some((item) => item.id === preset.id)) return;
             updatePreset(preset.id, preset.name, preset.description ?? '', preset.targets);
             setEditingPresetId(null);
+          }}
+        />
+      )}
+      {creatingPreset && (
+        <PresetEditor
+          mode="create"
+          preset={{ id: '', name: '', description: '', targets: targets.map((target) => ({ ...target })) }}
+          contexts={contextNames}
+          onClose={() => setCreatingPreset(false)}
+          onSave={(preset) => {
+            savePreset(preset.name, preset.description ?? '', preset.targets);
+            setCreatingPreset(false);
           }}
         />
       )}
@@ -543,7 +619,7 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
   const active = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? workspaces[0];
   const [open, setOpen] = useState(false);
   const [workspaceEditor, setWorkspaceEditor] = useState<{ mode: 'create' } | { mode: 'rename'; workspaceId: string } | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
+  const [, setStatus] = useState<string | null>(null);
   const [workspaceManagerError, setWorkspaceManagerError] = useState<string | null>(null);
   const [importPreview, setImportPreview] = useState<WorkspaceImportResult | null>(null);
   const [importCandidates, setImportCandidates] = useState<WorkspaceImportResult[] | null>(null);
@@ -566,11 +642,15 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
   const [quickApplyingPresetId, setQuickApplyingPresetId] = useState<string | null>(null);
   const [pendingPresetId, setPendingPresetId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const importTriggerRef = useRef<HTMLButtonElement>(null);
+  const importDialogRef = useRef<HTMLElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const workspaceManagerErrorOkRef = useRef<HTMLButtonElement>(null);
   const workspaceDeleteTriggerRef = useRef<HTMLElement | null>(null);
   const quickControlsRef = useRef<HTMLDivElement>(null);
   const presetQuickTriggerRef = useRef<HTMLButtonElement>(null);
+  const importFeedbackRef = useRef(false);
+  useDialogFocus(Boolean(importPreview), importDialogRef, importTriggerRef, '#workspace-import-name');
   const activePreset = presets.find((preset) => preset.id === activePresetId);
   const managerBusy = Boolean(fileOperation) || workspaceDeletePending;
   const quickBusy = managerBusy || podsLoading || Boolean(quickApplyingPresetId);
@@ -685,6 +765,8 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
   const closeManager = () => {
     if (managerBusy) return;
     setOpen(false);
+    if (importFeedbackRef.current) setStatus(null);
+    importFeedbackRef.current = false;
     setWorkspaceManagerError(null);
     setWorkspaceEditor(null);
     setImportPreview(null);
@@ -698,6 +780,8 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
     setConflictResolutionSkipped(new Set());
     setWorkspaceQuery('');
     setSelectedWorkspaceIds([]);
+    setImportName('');
+    setActivateImport(false);
   };
 
   const clearWorkspaceSelection = () => {
@@ -710,6 +794,12 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
     setOpen(true);
   };
 
+  const closeImportPreview = () => {
+    setImportPreview(null);
+    if (importFeedbackRef.current) setStatus(null);
+    importFeedbackRef.current = false;
+  };
+
   const closeImportBundle = () => {
     setImportCandidates(null);
     setSelectedImportIndexes([]);
@@ -719,6 +809,8 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
     setConflictResolutionPosition(null);
     setConflictResolutionNames({});
     setConflictResolutionSkipped(new Set());
+    if (importFeedbackRef.current) setStatus(null);
+    importFeedbackRef.current = false;
   };
 
   const toggleWorkspaceSelection = (id: string) => {
@@ -754,7 +846,7 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
         return;
       }
       if (importPreview) {
-        setImportPreview(null);
+        closeImportPreview();
         return;
       }
       if (conflictResolutionPosition !== null) {
@@ -774,7 +866,7 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [closeImportBundle, conflictResolutionPosition, importCandidates, importConflictIndexes, importPreview, managerBusy, open, workspaceDeleteIntent, workspaceEditor, workspaceManagerError]);
+  }, [closeImportBundle, closeImportPreview, conflictResolutionPosition, importCandidates, importConflictIndexes, importPreview, managerBusy, open, workspaceDeleteIntent, workspaceEditor, workspaceManagerError]);
 
   const beginCreate = () => {
     clearWorkspaceSelection();
@@ -824,6 +916,8 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
   const readImport = (file: File) => {
     const startedAt = Date.now();
     clearWorkspaceSelection();
+    setStatus(null);
+    importFeedbackRef.current = false;
     setFileOperation('importing');
     void file.text().then((raw) => {
       const parsed = parseWorkspaceImportFile(raw);
@@ -843,6 +937,7 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
         setImportQuery('');
       }
     }).catch(() => {
+      importFeedbackRef.current = true;
       setStatus('The selected Workspace could not be read.');
     }).finally(() => {
       window.setTimeout(() => setFileOperation(null), Math.max(0, 350 - (Date.now() - startedAt)));
@@ -900,6 +995,7 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
     setSelectedImportIndexes([]);
     setImportQuery('');
     setActiveImportIndex(null);
+    importFeedbackRef.current = true;
     setStatus(`${importedCount} Workspace${importedCount === 1 ? '' : 's'} imported${strategy === 'skip' ? ', existing names skipped' : ''}.`);
     const activeWasImported = activeImportIndex !== null && selectedImportIndexes.includes(activeImportIndex) && !(
       strategy === 'skip' && selectedImportConflictIndexes.includes(activeImportIndex)
@@ -949,6 +1045,8 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
   };
 
   const openImportPreview = (preview: WorkspaceImportResult) => {
+    setStatus(null);
+    importFeedbackRef.current = false;
     setImportPreview(preview);
     setImportName(preview.suggestedName ?? preview.workspaceName ?? '');
     setActivateImport(false);
@@ -1013,7 +1111,7 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
         }
         clearWorkspaceSelection();
         setWorkspaceDeleteIntent(null);
-        setStatus('Workspace deleted.');
+        setStatus(null);
         return;
       }
 
@@ -1036,7 +1134,7 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
       }
       clearWorkspaceSelection();
       setWorkspaceDeleteIntent(null);
-      setStatus(intent.kind === 'selected' ? 'Selected Workspaces deleted.' : 'All other Workspaces deleted.');
+      setStatus(null);
     } catch {
       setWorkspaceDeleteError('The Workspace could not be deleted.');
     } finally {
@@ -1050,6 +1148,7 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
     const shouldActivate = activateImport;
     const error = importWorkspace(importPreview, importName, shouldActivate);
     if (error) {
+      importFeedbackRef.current = true;
       setStatus(error);
       return;
     }
@@ -1060,6 +1159,7 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
       const remaining = current.filter((candidate) => candidate !== importPreview);
       return remaining.length > 0 ? remaining : null;
     });
+    importFeedbackRef.current = true;
     setStatus(shouldActivate ? 'Workspace imported and selected.' : 'Workspace imported.');
     if (shouldActivate) {
       closeManager();
@@ -1200,7 +1300,6 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
           )}
         </div>
       </div>
-      {status && !open && <p className="workspace-status" role="status" aria-live="polite">{status}</p>}
       {quickApplyingPresetId && (
         <p className="workspace-status" role="status" aria-live="polite">
           <Loader size={13} className="spinning" /> Loading pods for {presets.find((preset) => preset.id === quickApplyingPresetId)?.name ?? 'selected preset'}...
@@ -1227,7 +1326,6 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
               <X size={15} />
             </button>
           </div>
-          {status && <p className="workspace-status" role="status" aria-live="polite">{status}</p>}
           <div className="workspace-manager-toolbar">
             {workspaces.length > 0 ? (
               <label className="preset-search workspace-search">
@@ -1295,6 +1393,7 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
             <button type="button" className="secondary-button" onClick={beginCreate} disabled={managerBusy}><Plus size={13} /> Create</button>
             <button type="button" className="secondary-button" onClick={exportWorkspace} disabled={managerBusy || selectedWorkspaceIds.length === 0} aria-busy={fileOperation === 'exporting'}>{fileOperation === 'exporting' ? <Loader size={13} className="spinning" /> : <Download size={13} />} {fileOperation === 'exporting' ? 'Exporting...' : 'Export selected'}{fileOperation !== 'exporting' && selectedWorkspaceIds.length > 0 ? ` (${selectedWorkspaceIds.length})` : ''}</button>
             <button
+              ref={importTriggerRef}
               type="button"
               className="secondary-button"
               onClick={() => {
@@ -1465,17 +1564,17 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
         />
       )}
       {importPreview && (
-        <div className="preset-editor-backdrop" onMouseDown={(event) => !managerBusy && event.target === event.currentTarget && setImportPreview(null)}>
-          <section className="preset-editor workspace-import-dialog" role="dialog" aria-modal="true" aria-labelledby="workspace-import-title" aria-busy={managerBusy}>
+        <div className="preset-editor-backdrop" onMouseDown={(event) => !managerBusy && event.target === event.currentTarget && closeImportPreview()}>
+          <section ref={importDialogRef} className="preset-editor workspace-import-dialog" role="dialog" aria-modal="true" aria-labelledby="workspace-import-title" aria-busy={managerBusy} tabIndex={-1}>
             <div className="preset-editor-header">
               <div><span className="eyebrow">Review file</span><h2 id="workspace-import-title">Import workspace</h2></div>
-              <button type="button" className="icon-button subtle" onClick={() => setImportPreview(null)} aria-label="Close Workspace import preview" disabled={managerBusy}><X size={15} /></button>
+              <button type="button" className="icon-button subtle" onClick={closeImportPreview} aria-label="Close Workspace import preview" disabled={managerBusy}><X size={15} /></button>
             </div>
             {importPreview.error ? <div className="preset-library-feedback is-error" role="alert">{importPreview.error}</div> : (
               <>
                 <p className="preset-dialog-summary">{importPreview.accepted.length} preset(s) ready, {importPreview.invalid.length} invalid. A new Workspace will be created.</p>
                 <div className="preset-editor-fields">
-                  <label><span>Resulting workspace name</span><input id="workspace-import-name" value={importName} onChange={(event) => setImportName(event.target.value)} autoFocus disabled={managerBusy} aria-invalid={Boolean(importNameError)} aria-describedby={importNameError ? 'workspace-import-name-error' : undefined} /></label>
+                  <label htmlFor="workspace-import-name"><span>Resulting workspace name</span><input id="workspace-import-name" name="workspace-name" autoComplete="off" value={importName} onChange={(event) => setImportName(event.target.value)} autoFocus disabled={managerBusy} aria-invalid={Boolean(importNameError)} aria-describedby={importNameError ? 'workspace-import-name-error' : undefined} /></label>
                 </div>
                 {importNameError && <p className="workspace-import-error" id="workspace-import-name-error" role="alert">{importNameError}</p>}
                 <label className="workspace-import-activate"><input type="checkbox" checked={activateImport} onChange={(event) => setActivateImport(event.target.checked)} disabled={managerBusy} /> Select imported Workspace after confirmation</label>
@@ -1483,7 +1582,7 @@ export function WorkspaceControls({ onOpenPresetLibrary }: { onOpenPresetLibrary
               </>
             )}
             <div className="preset-editor-actions">
-              <button type="button" className="secondary-button" onClick={() => setImportPreview(null)} disabled={managerBusy}>Cancel</button>
+              <button type="button" className="secondary-button" onClick={closeImportPreview} disabled={managerBusy}>Cancel</button>
               <button type="button" className="primary-button" onClick={submitImport} disabled={managerBusy || Boolean(importPreview.error) || Boolean(importNameError) || importPreview.accepted.length === 0 || !importName.trim()}><Save size={13} /> Import workspace</button>
             </div>
           </section>
@@ -1660,10 +1759,8 @@ function WorkspaceEditor({ mode, workspace, onClose, onSave }: WorkspaceEditorPr
 interface PresetLibraryProps {
   presets: Preset[];
   activeWorkspaceId: string;
-  targets: { cluster: string; namespace: string }[];
   activePresetId: string | null;
   activePresetDirty: boolean;
-  startNaming: boolean;
   applyingPresetId: string | null;
   workspaceName: string;
   onClose: () => void;
@@ -1677,23 +1774,18 @@ type PresetDeleteIntent =
 function PresetLibrary({
   presets,
   activeWorkspaceId,
-  targets,
   activePresetId,
   activePresetDirty,
-  startNaming,
   applyingPresetId,
   workspaceName,
   onClose,
   onApply,
   onEdit,
 }: PresetLibraryProps) {
-  const savePreset = useOpsFlowStore((s) => s.savePreset);
   const deletePresets = useOpsFlowStore((s) => s.deletePresets);
   const workspaces = useOpsFlowStore((s) => s.workspaces);
   const transferPresets = useOpsFlowStore((s) => s.transferPresets);
   const [query, setQuery] = useState('');
-  const [naming, setNaming] = useState(startNaming);
-  const [name, setName] = useState('');
   const [deleteIntent, setDeleteIntent] = useState<PresetDeleteIntent | null>(null);
   const [deletePending, setDeletePending] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -1771,13 +1863,6 @@ function PresetLibrary({
       return reconciled;
     });
   }, [destinationWorkspaces]);
-
-  const confirmSave = () => {
-    if (libraryBusy || !name.trim() || targets.length === 0) return;
-    savePreset(name);
-    setName('');
-    setNaming(false);
-  };
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1885,7 +1970,7 @@ function PresetLibrary({
                 <Search size={13} />
                 <span className="visually-hidden">Search presets</span>
                 <input
-                  autoFocus={!naming}
+                  autoFocus
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   disabled={libraryBusy}
@@ -1897,14 +1982,6 @@ function PresetLibrary({
                   </button>
                 )}
               </label>
-            </div>
-          )}
-
-          {targets.length > 0 && !naming && (
-            <div className="preset-library-save-row">
-              <button type="button" className="secondary-button" onClick={() => setNaming(true)} disabled={libraryBusy}>
-                <Save size={13} /> Save as new
-              </button>
             </div>
           )}
 
@@ -1973,33 +2050,6 @@ function PresetLibrary({
             </div>
           )}
         </div>
-
-        {naming && (
-          <div className="preset-library-save-form">
-            <input
-              autoFocus
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              disabled={libraryBusy}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  confirmSave();
-                }
-                if (event.key === 'Escape') {
-                  setNaming(false);
-                  setName('');
-                }
-              }}
-              placeholder="Preset name"
-              aria-label="Preset name"
-            />
-            <button type="button" className="primary-button" onClick={confirmSave} disabled={!name.trim() || libraryBusy}>
-              <Save size={13} /> Create preset
-            </button>
-            <button type="button" className="secondary-button" onClick={() => setNaming(false)} disabled={libraryBusy}>Cancel</button>
-          </div>
-        )}
 
         <div className="preset-library-list" role="group" aria-label="Saved presets">
           {visiblePresets.map((preset) => {
@@ -2499,39 +2549,52 @@ interface EditablePreset {
 }
 
 interface PresetEditorProps {
+  mode: 'create' | 'edit';
   preset: EditablePreset | null;
   contexts: string[];
   onClose: () => void;
   onSave: (preset: EditablePreset) => void;
 }
 
-function PresetEditor({ preset, contexts, onClose, onSave }: PresetEditorProps) {
+function PresetEditor({ mode, preset, contexts, onClose, onSave }: PresetEditorProps) {
   const namespaces = useOpsFlowStore((s) => s.namespaces);
   const namespacesLoading = useOpsFlowStore((s) => s.namespacesLoading);
+  const namespacesError = useOpsFlowStore((s) => s.namespacesError);
   const loadNamespaces = useOpsFlowStore((s) => s.loadNamespaces);
+  const dialogRef = useRef<HTMLElement>(null);
   const [name, setName] = useState(preset?.name ?? '');
   const [description, setDescription] = useState(preset?.description ?? '');
   const [targets, setTargets] = useState(() => preset?.targets.map((target) => ({ ...target })) ?? []);
-  const [newCluster, setNewCluster] = useState(contexts[0] ?? '');
+  const [newCluster, setNewCluster] = useState(
+    preset?.targets[0]?.cluster ?? contexts[0] ?? '',
+  );
   const [newNamespace, setNewNamespace] = useState('');
+  const [targetFeedback, setTargetFeedback] = useState('');
+  useDialogFocus(Boolean(preset), dialogRef, undefined, 'input');
 
   const clusterOptions = useMemo(
     () => [...new Set([...contexts, ...targets.map((target) => target.cluster)])],
     [contexts, targets],
   );
-  const clusterKey = clusterOptions.join('|');
+  const namespaceClusters = useMemo(
+    () => [...new Set([...targets.map((target) => target.cluster), newCluster].filter(Boolean))].sort(),
+    [newCluster, targets],
+  );
+  const namespaceClusterKey = namespaceClusters.join('|');
 
   useEffect(() => {
-    void loadNamespaces(clusterOptions);
-  }, [clusterKey, loadNamespaces]);
+    if (mode === 'create') return;
+    void loadNamespaces(namespaceClusters);
+  }, [loadNamespaces, mode, namespaceClusterKey]);
 
   useEffect(() => {
     if (!preset) return;
     setName(preset.name);
     setDescription(preset.description ?? '');
     setTargets(preset.targets.map((target) => ({ ...target })));
-    setNewCluster(contexts[0] ?? preset.targets[0]?.cluster ?? '');
-  }, [contexts, preset]);
+    setNewCluster(preset.targets[0]?.cluster ?? contexts[0] ?? '');
+    setTargetFeedback('');
+  }, [contexts, mode, preset]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -2541,10 +2604,25 @@ function PresetEditor({ preset, contexts, onClose, onSave }: PresetEditorProps) 
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
+  const availableNamespaces = useMemo(() => {
+    const byName = new Map(namespaces.map((namespace) => [namespace.name, { ...namespace, clusters: [...namespace.clusters] }]));
+    if (mode === 'create') {
+      targets.forEach((target) => {
+        const existing = byName.get(target.namespace);
+        if (existing) {
+          if (!existing.clusters.includes(target.cluster)) existing.clusters.push(target.cluster);
+        } else {
+          byName.set(target.namespace, { name: target.namespace, clusters: [target.cluster] });
+        }
+      });
+    }
+    return [...byName.values()];
+  }, [mode, namespaces, targets]);
+
   if (!preset) return null;
 
   const namespacesForCluster = (cluster: string) =>
-    namespaces.filter((namespace) => namespace.clusters.includes(cluster));
+    availableNamespaces.filter((namespace) => namespace.clusters.includes(cluster));
   const isValidNamespace = (cluster: string, namespace: string) =>
     namespacesForCluster(cluster).some((item) => item.name === namespace.trim());
   const canAddTarget =
@@ -2554,6 +2632,7 @@ function PresetEditor({ preset, contexts, onClose, onSave }: PresetEditorProps) 
   );
 
   const updateTarget = (index: number, field: 'cluster' | 'namespace', value: string) => {
+    setTargetFeedback('');
     setTargets((current) =>
       current.map((target, targetIndex) =>
         targetIndex === index ? { ...target, [field]: value } : target,
@@ -2562,11 +2641,18 @@ function PresetEditor({ preset, contexts, onClose, onSave }: PresetEditorProps) 
   };
 
   const addTarget = () => {
-    if (!canAddTarget) return;
+    if (!canAddTarget) {
+      setTargetFeedback('Choose a valid namespace for the selected cluster.');
+      return;
+    }
     const next = { cluster: newCluster.trim(), namespace: newNamespace.trim() };
-    if (targets.some((target) => targetKey(target) === targetKey(next))) return;
+    if (targets.some((target) => targetKey(target) === targetKey(next))) {
+      setTargetFeedback('This cluster and namespace are already in the preset.');
+      return;
+    }
     setTargets((current) => [...current, next]);
     setNewNamespace('');
+    setTargetFeedback('');
   };
 
   return (
@@ -2574,6 +2660,7 @@ function PresetEditor({ preset, contexts, onClose, onSave }: PresetEditorProps) 
       if (event.target === event.currentTarget) onClose();
     }}>
       <section
+        ref={dialogRef}
         className="preset-editor"
         role="dialog"
         aria-modal="true"
@@ -2582,7 +2669,7 @@ function PresetEditor({ preset, contexts, onClose, onSave }: PresetEditorProps) 
         <div className="preset-editor-header">
           <div>
             <span className="eyebrow">Preset details</span>
-            <h2 id="preset-editor-title">Edit preset</h2>
+            <h2 id="preset-editor-title">{mode === 'create' ? 'Save preset as new' : 'Edit preset'}</h2>
           </div>
           <button type="button" className="icon-button subtle" onClick={onClose} aria-label="Close preset editor">
             <X size={15} />
@@ -2641,28 +2728,51 @@ function PresetEditor({ preset, contexts, onClose, onSave }: PresetEditorProps) 
           ))}
         </div>
 
-        <div className="preset-target-add-row">
-          <select value={newCluster} onChange={(event) => setNewCluster(event.target.value)} aria-label="New target cluster">
-            <option value="">Cluster</option>
-            {clusterOptions.map((cluster) => <option key={cluster} value={cluster}>{cluster}</option>)}
-          </select>
-          <PresetNamespaceInput
-            value={newNamespace}
-            namespaces={namespacesForCluster(newCluster)}
-            loading={namespacesLoading}
-            onChange={setNewNamespace}
-            ariaLabel="New target namespace"
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                addTarget();
-              }
-            }}
-          />
-          <button type="button" className="secondary-button" onClick={addTarget} disabled={!canAddTarget}>
-            <Plus size={13} /> Add
-          </button>
-        </div>
+        {mode === 'edit' && namespacesError && (
+          <p className="preset-editor-feedback" role="alert">
+            <AlertTriangle size={12} /> {namespacesError}
+          </p>
+        )}
+
+        {mode === 'edit' && (
+          <div className="preset-target-add-row">
+            <select
+              value={newCluster}
+              onChange={(event) => {
+                setNewCluster(event.target.value);
+                setNewNamespace('');
+                setTargetFeedback('');
+              }}
+              aria-label="New target cluster"
+            >
+              <option value="">Cluster</option>
+              {clusterOptions.map((cluster) => <option key={cluster} value={cluster}>{cluster}</option>)}
+            </select>
+            <PresetNamespaceInput
+              value={newNamespace}
+              namespaces={namespacesForCluster(newCluster)}
+              loading={namespacesLoading}
+              onChange={(value) => {
+                setNewNamespace(value);
+                setTargetFeedback('');
+              }}
+              ariaLabel="New target namespace"
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  addTarget();
+                }
+              }}
+            />
+            <button type="button" className="secondary-button" onClick={addTarget} disabled={!canAddTarget}>
+              <Plus size={13} /> Add
+            </button>
+          </div>
+        )}
+
+        {mode === 'edit' && targetFeedback && (
+          <p className="preset-target-feedback" role="status">{targetFeedback}</p>
+        )}
 
         <div className="preset-editor-actions">
           <button type="button" className="secondary-button" onClick={onClose}>Cancel</button>
@@ -2672,7 +2782,7 @@ function PresetEditor({ preset, contexts, onClose, onSave }: PresetEditorProps) 
             onClick={() => onSave({ id: preset.id, name, description, targets })}
             disabled={!canSave}
           >
-            <Save size={13} /> Save changes
+            <Save size={13} /> {mode === 'create' ? 'Create preset' : 'Save changes'}
           </button>
         </div>
       </section>

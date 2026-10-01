@@ -4183,7 +4183,6 @@ button {
 }
 
 .preset-library-search-row,
-.preset-library-save-row,
 .preset-selection-controls,
 .preset-batch-actions {
   min-width: 0;
@@ -4195,13 +4194,6 @@ button {
 
 .preset-library-search-row .preset-search {
   width: 100%;
-}
-
-.preset-library-save-row {
-  display: flex;
-  justify-content: flex-end;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--line);
 }
 
 .preset-library-file-actions {
@@ -4960,6 +4952,27 @@ button {
   gap: 6px;
 }
 
+.preset-editor-feedback {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 8px 2px 0;
+  padding: 8px 9px;
+  color: #9a4e3a;
+  background: #fff2ee;
+  border: 1px solid #f0c9ba;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.preset-target-feedback {
+  margin: 6px 2px 0;
+  color: #9a4e3a;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
 .preset-namespace-input {
   position: relative;
   min-width: 0;
@@ -5077,10 +5090,6 @@ button {
 
   .preset-library-file-actions {
     width: 100%;
-  }
-
-  .preset-library-save-row {
-    justify-content: flex-start;
   }
 
   .preset-batch-actions {

@@ -93,7 +93,7 @@ test('clearPresets persists an empty library and resets the active view', () => 
   }
 });
 
-test('deleting the active preset preserves the current view', () => {
+test('deleting the active preset resets the current view', () => {
   const original = useOpsFlowStore.getState();
   const active = createPreset('active', [{ cluster: 'c1', namespace: 'n1' }]);
   useOpsFlowStore.setState({
@@ -105,25 +105,29 @@ test('deleting the active preset preserves the current view', () => {
     }],
     activePresetId: active.id,
     hasQueried: true,
+    filter: 'running',
+    configurationRevision: 4,
+    explicitQueryRevision: 6,
   });
 
   try {
+    const before = useOpsFlowStore.getState();
     useOpsFlowStore.getState().deletePreset(active.id);
     const state = useOpsFlowStore.getState();
     assert.deepEqual(state.presets, []);
     assert.equal(state.activePresetId, null);
-    assert.deepEqual(state.targets, [{ cluster: 'c1', namespace: 'n1' }]);
-    assert.deepEqual(state.pods, [ {
-      cluster: 'c1', namespace: 'n1', name: 'pod', status: 'Running', ready: '1/1', restarts: 0,
-      node: 'node', ageSeconds: 10, containers: ['app'], application: { key: 'pod:pod', name: 'pod', source: 'pod' },
-    }]);
-    assert.equal(state.hasQueried, true);
+    assert.deepEqual(state.targets, []);
+    assert.deepEqual(state.pods, []);
+    assert.equal(state.hasQueried, false);
+    assert.equal(state.filter, '');
+    assert.equal(state.configurationRevision, before.configurationRevision + 1);
+    assert.equal(state.explicitQueryRevision, before.explicitQueryRevision + 1);
   } finally {
     useOpsFlowStore.setState(original);
   }
 });
 
-test('bulk deletion removes exact ids and preserves the operational view when active preset is selected', () => {
+test('bulk deletion removes exact ids and resets the operational view when active preset is selected', () => {
   const original = useOpsFlowStore.getState();
   const active = createPreset('active', [{ cluster: 'c1', namespace: 'n1' }]);
   const other = createPreset('other', [{ cluster: 'c2', namespace: 'n2' }]);
@@ -144,6 +148,7 @@ test('bulk deletion removes exact ids and preserves the operational view when ac
     activePresetDirty: true,
     hasQueried: true,
     filter: 'running',
+    configurationRevision: 3,
     explicitQueryRevision: 7,
   });
 
@@ -154,11 +159,12 @@ test('bulk deletion removes exact ids and preserves the operational view when ac
     assert.deepEqual(state.presets.map((preset) => preset.id), [untouched.id]);
     assert.equal(state.activePresetId, null);
     assert.equal(state.activePresetDirty, false);
-    assert.deepEqual(state.targets, targets);
-    assert.deepEqual(state.pods, pods);
-    assert.equal(state.hasQueried, true);
-    assert.equal(state.filter, 'running');
-    assert.equal(state.explicitQueryRevision, 7);
+    assert.deepEqual(state.targets, []);
+    assert.deepEqual(state.pods, []);
+    assert.equal(state.hasQueried, false);
+    assert.equal(state.filter, '');
+    assert.equal(state.configurationRevision, 4);
+    assert.equal(state.explicitQueryRevision, 8);
   } finally {
     useOpsFlowStore.setState(original);
   }
