@@ -171,10 +171,11 @@ explicit Origin allowlist and an in-memory capability for configured production/
   uses a clean production install, and rejects sensitive resource names/extensions. CI runs
   `npm ci`, production audit, workspace typechecks/tests/builds, package preparation, and package
   inspection before artifact upload.
-- **Evidence:** `node scripts/prepare-desktop-runtime.mjs` passed. A direct-dependency comparison
-  matched staged runtime versions to the root lockfile: `@kubernetes/client-node@1.4.0`,
-  `express@4.22.3`, `undici@6.28.1`, and `ws@8.21.3`. `node scripts/inspect-package.mjs` passed
-  for five resource roots. `npm run security:prepackage` passed.
+- **Evidence:** v1.11.0 dependency maintenance updated the approved compatible set: `undici@6.29.0`,
+  `ws@8.22.0`, and the staged runtime's declared direct versions remain aligned with the root
+  lockfile; Electron resolves to `44.5.1`. `node scripts/prepare-desktop-runtime.mjs` and
+  `node scripts/inspect-package.mjs` passed for five resource roots. `npm run security:prepackage`
+  passed, including audit, workspace typechecks, tests, and build.
 - **Limitation and owner:** Current Linux packaging was not run because it would create release
   outputs; Windows and macOS installer/archive inspection, signing/notarization, and a live CI job
   were unavailable on this host. The workflow upload block is source-reviewed, not executed CI
@@ -339,8 +340,10 @@ No Kubernetes mutation method was found in the audited backend or operational so
 
 ### Dependencies and delivery
 
-- The lockfile resolves Express `4.22.3`, `qs 6.16.0`, and Electron `44.4.0`; `extract-zip` was not present in the resolved tree returned by `npm ls`.
-- `npm audit --audit-level=high` exits successfully with no high or critical advisories, but reports one moderate production-transitive advisory for `ip-address <=10.7.0` through `@kubernetes/client-node -> socks-proxy-agent -> socks`.
+- The lockfile resolves Express `4.22.3`, `qs 6.16.0`, Electron `44.5.1`, `undici 6.29.0`, and
+  `ws 8.22.0`; `extract-zip` was not present in the resolved tree returned by `npm ls`.
+- `npm audit --omit=dev` exits successfully with `0 vulnerabilities`; the reviewed
+  `ip-address@10.7.2` override remains in place for the Kubernetes client SOCKS chain.
 - `electron-builder.yml` lists explicit desktop/frontend/backend resources and the runtime preparation script rejects kubeconfig-named paths in compiled assets. Packaging was intentionally not run.
 - The package workflow runs `npm ci` and packaging but has no explicit dependency audit, unit-test, typecheck, or artifact-inspection gate. The backend runtime staging script runs a fresh production `npm install --omit=dev --ignore-scripts --no-package-lock`, so packaged backend dependencies can drift from the root lockfile. See SEC-010.
 
