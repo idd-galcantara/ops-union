@@ -1,0 +1,53 @@
+name: Dependabot auto-merge
+
+on:
+  workflow_run:
+    workflows:
+      - Pull request validation
+      - Dependency review
+    types:
+      - completed
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  enable-auto-merge:
+    name: Enable auto-merge when checks pass
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable auto-merge for eligible Dependabot PRs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+
+          while IFS= read -r pull_request_number; do
+            if [[ -z "$pull_request_number" ]]; then
+              continue
+            fi
+
+            author="$(gh pr view "$pull_request_number" --repo "$REPOSITORY" --json author --jq '.author.login')"
+            if [[ "$author" != "dependabot[bot]" && "$author" != "app/dependabot" ]]; then
+              continue
+            fi
+
+            head_sha="$(gh pr view "$pull_request_number" --repo "$REPOSITORY" --json headRefOid --jq '.headRefOid')"
+            validate_count="$(gh api "repos/$REPOSITORY/commits/$head_sha/check-runs" --jq '[.check_runs[] | select(.name == "Validate pull request" and .status == "completed" and .conclusion == "success")] | length')"
+            review_count="$(gh api "repos/$REPOSITORY/commits/$head_sha/check-runs" --jq '[.check_runs[] | select(.name == "Review dependency changes" and .status == "completed" and .conclusion == "success")] | length')"
+
+            if [[ "$validate_count" -lt 1 || "$review_count" -lt 1 ]]; then
+              echo "PR #$pull_request_number is waiting for both required checks."
+              continue
+            fi
+
+            gh pr merge "$pull_request_number" \
+              --repo "$REPOSITORY" \
+              --auto \
+              --squash \
+              --delete-branch
+          done < <(gh api "repos/$REPOSITORY/actions/runs/$WORKFLOW_RUN_ID" --jq '.pull_requests[]?.number')
