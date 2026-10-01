@@ -501,7 +501,7 @@ function PresetSection({
 
   const openLibrary = (saveCurrent = false) => {
     setCreatingPreset(saveCurrent);
-    setLibraryOpen(true);
+    setLibraryOpen(!saveCurrent);
   };
 
   useEffect(() => {
@@ -581,11 +581,15 @@ function PresetSection({
         <PresetEditor
           mode="create"
           preset={{ id: '', name: '', description: '', targets: targets.map((target) => ({ ...target })) }}
+          presets={presets}
           contexts={contextNames}
           onClose={() => setCreatingPreset(false)}
           onSave={(preset) => {
-            savePreset(preset.name, preset.description ?? '', preset.targets);
+            const createdId = savePreset(preset.name, preset.description ?? '', preset.targets);
             setCreatingPreset(false);
+            setLibraryOpen(false);
+            if (!createdId) return;
+            void applyPresetAndLoad(createdId, useOpsFlowStore.getState, () => undefined).catch(() => undefined);
           }}
         />
       )}
@@ -2551,12 +2555,13 @@ interface EditablePreset {
 interface PresetEditorProps {
   mode: 'create' | 'edit';
   preset: EditablePreset | null;
+  presets?: Pick<Preset, 'name'>[];
   contexts: string[];
   onClose: () => void;
   onSave: (preset: EditablePreset) => void;
 }
 
-function PresetEditor({ mode, preset, contexts, onClose, onSave }: PresetEditorProps) {
+function PresetEditor({ mode, preset, presets = [], contexts, onClose, onSave }: PresetEditorProps) {
   const namespaces = useOpsFlowStore((s) => s.namespaces);
   const namespacesLoading = useOpsFlowStore((s) => s.namespacesLoading);
   const namespacesError = useOpsFlowStore((s) => s.namespacesError);
@@ -2627,9 +2632,12 @@ function PresetEditor({ mode, preset, contexts, onClose, onSave }: PresetEditorP
     namespacesForCluster(cluster).some((item) => item.name === namespace.trim());
   const canAddTarget =
     newCluster.trim() !== '' && isValidNamespace(newCluster, newNamespace);
+  const duplicateName = mode === 'create' && presets.some((item) =>
+    item.name.trim().toLocaleLowerCase() === name.trim().toLocaleLowerCase(),
+  );
   const canSave = name.trim() !== '' && targets.length > 0 && targets.every(
     (target) => target.cluster.trim() !== '' && isValidNamespace(target.cluster, target.namespace),
-  );
+  ) && !duplicateName;
 
   const updateTarget = (index: number, field: 'cluster' | 'namespace', value: string) => {
     setTargetFeedback('');
@@ -2681,6 +2689,11 @@ function PresetEditor({ mode, preset, contexts, onClose, onSave }: PresetEditorP
             <span>Name</span>
             <input value={name} onChange={(event) => setName(event.target.value)} autoFocus />
           </label>
+          {duplicateName && (
+            <p className="preset-editor-feedback" role="alert">
+              <AlertTriangle size={12} /> A preset with this name already exists.
+            </p>
+          )}
           <label>
             <span>Description</span>
             <textarea

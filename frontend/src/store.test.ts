@@ -4,6 +4,29 @@ import { createPreset } from './presets';
 import { buildTransferPlan, catalogForTransfer } from './presetTransfer';
 import { useOpsFlowStore } from './store';
 
+test('savePreset rejects a duplicate name without changing the catalog', () => {
+  const original = useOpsFlowStore.getState();
+  const existing = createPreset('Existing preset', [{ cluster: 'c1', namespace: 'n1' }]);
+  const workspace = original.workspaces.find((item) => item.id === original.activeWorkspaceId);
+  assert.ok(workspace);
+  useOpsFlowStore.setState({
+    presets: [existing],
+    workspaces: original.workspaces.map((item) => item.id === workspace.id ? { ...item, presets: [existing] } : item),
+    targets: [{ cluster: 'c2', namespace: 'n2' }],
+    activePresetId: existing.id,
+  });
+
+  try {
+    const result = useOpsFlowStore.getState().savePreset('  EXISTING PRESET  ', 'ignored', [{ cluster: 'c2', namespace: 'n2' }]);
+    const state = useOpsFlowStore.getState();
+    assert.equal(result, undefined);
+    assert.deepEqual(state.presets, [existing]);
+    assert.equal(state.activePresetId, existing.id);
+  } finally {
+    useOpsFlowStore.setState(original);
+  }
+});
+
 test('appendImportedPresets persists fresh presets without changing view state', () => {
   const original = useOpsFlowStore.getState();
   const existing = createPreset('existing', [{ cluster: 'c1', namespace: 'n1' }]);

@@ -126,7 +126,7 @@ interface OpsFlowState {
   importWorkspace: (result: WorkspaceImportResult, name: string, activate: boolean, options?: WorkspaceImportOptions) => string | undefined;
   exportWorkspaces: (ids: string[], exportedAt?: string) => string;
   exportActiveWorkspace: (exportedAt?: string) => string;
-  savePreset: (name: string, description?: string, targets?: Target[]) => void;
+  savePreset: (name: string, description?: string, targets?: Target[]) => string | undefined;
   updatePreset: (id: string, name: string, description: string, targets: Target[]) => void;
   applyPreset: (id: string) => void;
   deletePreset: (id: string) => void;
@@ -628,7 +628,9 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
   savePreset: (name, description = '', targetValues = get().targets) => {
     const trimmed = name.trim();
     const { presets } = get();
-    if (!trimmed || targetValues.length === 0) return;
+    if (!trimmed || targetValues.length === 0) return undefined;
+    const normalizedName = trimmed.toLocaleLowerCase();
+    if (presets.some((preset) => preset.name.trim().toLocaleLowerCase() === normalizedName)) return undefined;
     const created = createPreset(trimmed, targetValues, description);
     const next = [...presets, created];
     persistState(get(), next);
@@ -638,6 +640,7 @@ export const useOpsFlowStore = create<OpsFlowState>((set, get) => {
       activePresetId: created.id,
       activePresetDirty: false,
     }));
+    return created.id;
   },
 
   updatePreset: (id, name, description, targets) => {

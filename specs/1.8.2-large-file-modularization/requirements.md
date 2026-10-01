@@ -1,8 +1,8 @@
-# Requirements - ops-union v1.8.0 large-file modularization
+# Requirements - ops-union v1.8.2 large-file modularization
 
 ## Status and scope
 
-Version 1.8.0 defines a behavior-preserving architecture refactor for the large, highly coupled
+Version 1.8.2 defines a behavior-preserving architecture refactor for the large, highly coupled
 modules identified by the v1.4.0 architecture audit: `frontend/src/components/TargetSelector.tsx`,
 `frontend/src/store.ts`, `frontend/src/components/LogViewer.tsx`, `backend/src/historySession.ts`,
 `desktop/src/main.ts`, `frontend/src/App.tsx`, and `frontend/src/index.css`.
@@ -113,8 +113,8 @@ and live operational state are observably equivalent before and after extraction
    bounded buffers/caches, source-level error isolation, and terminal states.
 3. Search SHALL retain draft/applied semantics, explicit activation, repeatable searches, jump-to-
    latest behavior, history query readiness, stale-operation rejection, and invalid-range errors.
-4. Virtualized output SHALL retain stable record keys, grouped presentation, wrapping behavior,
-   source labels, output limits, responsive controls, and accessible status/error messaging.
+4. Virtualized output SHALL retain stable record keys, grouped presentation, wrapping behavior, source
+   labels, output limits, responsive controls, and accessible status/error messaging.
 5. `LogViewer` SHALL remain available from its current import path and SHALL not duplicate WebSocket
    ownership or open competing aggregate sessions during extraction.
 
@@ -238,20 +238,3 @@ for this effort.
 - Extracting stateful React effects can change effect ordering, stale-closure behavior, or cleanup.
 - Splitting `store.ts` can create circular imports or accidentally produce multiple store instances.
 - Splitting Live/History handling can duplicate WebSockets, lose generation guards, or leak sockets.
-- Moving history storage can weaken file modes, limits, cleanup idempotency, or sanitized errors.
-- Desktop extraction can widen IPC privilege or change shutdown/persistence ordering.
-- CSS imports can alter cascade order, responsive overrides, or dark-theme readability.
-- A broad refactor can hide behavior changes behind passing unit tests if browser/Electron checks are
-  unavailable.
-
-## Definition of done
-
-- Each of the seven assessed large files has a documented ownership map and is reduced to a focused
-  facade/composition root with cohesive extracted modules.
-- Existing public contracts, read-only boundaries, persistence formats, log/history semantics,
-  desktop security settings, accessibility behavior, responsive layout, and both themes remain
-  compatible.
-- Characterization, focused unit, integration, typecheck/build, and available web/desktop validation
-  evidence is recorded in `tasks.md`; unavailable checks and residual risks are explicit.
-- No unrelated audit finding is silently fixed, no new feature or protocol is introduced, and no
-  Kubernetes mutation, secret exposure, commit, tag, or release artifact is part of the work.
