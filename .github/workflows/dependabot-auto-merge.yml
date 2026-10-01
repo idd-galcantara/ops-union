@@ -32,7 +32,7 @@ jobs:
             fi
 
             author="$(gh pr view "$pull_request_number" --repo "$REPOSITORY" --json author --jq '.author.login')"
-            if [[ "$author" != "dependabot[bot]" ]]; then
+            if [[ "$author" != "dependabot[bot]" && "$author" != "app/dependabot" ]]; then
               continue
             fi
 
