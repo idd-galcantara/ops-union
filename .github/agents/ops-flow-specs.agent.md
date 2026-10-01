@@ -45,6 +45,12 @@ names:
 - `@ops-union-frontend` for React, Vite, UI, state, styling, accessibility, or frontend API use.
 - `@ops-union-integration-qa` for end-to-end, real-cluster, packaging, security, or read-only
   validation.
+- `@ops-union-dependency-security` for read-only npm audit, advisory triage, dependency reachability,
+  lockfile integrity, and supply-chain evidence.
+- `@ops-union-dependency-maintainer` for compatible dependency upgrades, lockfile alignment, peer
+  and engine checks, and focused remediation.
+- `@ops-union-version-migration` for Node, npm, Electron, framework, toolchain, runtime, or
+  application migrations involving breaking changes or coordinated workspace updates.
 
 Use `_Copilot agent:` or `_Copilot agents:` consistently in new task sections. A task may name
 multiple specialists when the work genuinely crosses boundaries. Repository-maintainer work may
