@@ -103,6 +103,7 @@
 .topbar > .workspace-section .workspace-quick-controls {
   width: min(760px, 100%);
   margin: 0 auto;
+  gap: 6px;
   padding: 3px 0;
 }
 
@@ -137,9 +138,12 @@
 .workspace-workspace-quick-trigger {
   flex: 1 1 auto;
   min-width: 0;
-  padding: 6px 8px;
-  border-radius: 5px;
-  transition: background-color 140ms ease, color 140ms ease;
+  padding: 5px 9px;
+  color: var(--ink);
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
 .workspace-preset-control {
@@ -147,23 +151,26 @@
   min-width: 0;
   flex: 0 1 30ch;
   min-width: 30ch;
-  padding-left: 10px;
-  border-left: 1px solid var(--line);
+  padding-left: 0;
 }
 
 .workspace-preset-quick-trigger {
   width: 100%;
   flex: 1;
   gap: 6px;
-  padding: 6px 8px;
-  border-radius: 5px;
-  transition: background-color 140ms ease, color 140ms ease;
+  padding: 5px 9px;
+  color: var(--ink);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+  border-radius: 6px;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
 }
 
 .workspace-quick-trigger:hover,
 .workspace-quick-trigger:focus-visible {
   color: var(--accent);
-  background: var(--surface-subtle);
+  background: var(--surface);
+  border-color: var(--accent);
   outline: none;
 }
 
@@ -174,12 +181,16 @@
 
 .workspace-quick-trigger .workspace-context-label {
   flex: 0 0 auto;
-  font-size: 9px;
+  color: var(--muted);
+  font-size: 8px;
+  letter-spacing: .08em;
 }
 
 .workspace-quick-trigger > strong {
   min-width: 0;
   flex: 1;
+  font-size: 11px;
+  font-weight: 750;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -195,6 +206,14 @@
 .workspace-quick-trigger > svg {
   flex: 0 0 auto;
   color: var(--muted);
+}
+
+.workspace-workspace-quick-trigger > svg {
+  color: var(--navy);
+}
+
+.workspace-preset-quick-trigger > svg:first-child {
+  color: var(--accent);
 }
 
 .workspace-update-button {
