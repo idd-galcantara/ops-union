@@ -22,6 +22,13 @@ import {
   transferEntryKey,
   validateTransferPlan,
 } from '../presetTransfer';
+import {
+  copyCatalogSignature,
+  entriesForCopy,
+  validateCopyPlan,
+  type CopyConflictStrategy,
+  type CopyPlan,
+} from '../presetCopy';
 import { targetKey } from '../types';
 import type {
   OpsFlowState,
@@ -76,6 +83,7 @@ export function createWorkspaceActions(
   | 'deletePreset'
   | 'deletePresets'
   | 'transferPresets'
+  | 'copyPresetsFromWorkspace'
   | 'appendImportedPresets'
   | 'clearPresets'
 > {
@@ -473,6 +481,75 @@ export function createWorkspaceActions(
         ...(movedActive ? { activePresetId: null, activePresetDirty: false } : {}),
       });
       if (movedActive) helpers.resetWorkspaceView();
+      return { ok: true };
+    },
+
+    copyPresetsFromWorkspace: async (plan: CopyPlan, strategy: CopyConflictStrategy = 'reject'): Promise<TransferResult> => {
+      const state = get();
+      if (plan.intent.sourcePresetIds.length === 0) {
+        return { ok: false, error: 'Select at least one source preset.' };
+      }
+
+      const catalog = catalogForTransfer(state.workspaces, state.activeWorkspaceId, state.presets);
+      const conflicts = validateCopyPlan(plan, catalog);
+      const plannedConflictKeys = new Set(plan.conflicts.filter((conflict) => conflict.sourcePresetId).map((conflict) => conflict.sourcePresetId!));
+      const currentConflictKeys = new Set(conflicts.filter((conflict) => conflict.sourcePresetId).map((conflict) => conflict.sourcePresetId!));
+      const unresolved = conflicts.filter((conflict) => {
+        if (!conflict.sourcePresetId) return true;
+        if (strategy === 'reject') return true;
+        return !plannedConflictKeys.has(conflict.sourcePresetId);
+      });
+      if (unresolved.length > 0 || (strategy !== 'reject' && plannedConflictKeys.size !== currentConflictKeys.size)) {
+        return { ok: false, error: (unresolved[0] ?? conflicts[0])?.message ?? 'Review the Workspace copy again.' };
+      }
+
+      const source = catalog.workspaces.find((workspace) => workspace.id === plan.intent.sourceWorkspaceId);
+      const destination = catalog.workspaces.find((workspace) => workspace.id === plan.intent.destinationWorkspaceId);
+      if (!source || !destination || destination.id !== state.activeWorkspaceId || source.id === destination.id) {
+        return { ok: false, error: 'The source or destination Workspace is no longer available.' };
+      }
+
+      const entries = entriesForCopy(plan, strategy);
+      if (entries.length === 0) return { ok: true };
+      const now = new Date().toISOString();
+      const nextWorkspaces = catalog.workspaces.map((workspace) => {
+        if (workspace.id !== destination.id) return workspace;
+        const nextPresets = [...workspace.presets];
+        const semanticIndexes = new Map(nextPresets.map((preset, index) => [presetSemanticKey(preset.targets), index]));
+        for (const entry of entries) {
+          const semanticKey = presetSemanticKey(entry.preset.targets);
+          const existingIndex = semanticIndexes.get(semanticKey);
+          if (existingIndex === undefined) {
+            semanticIndexes.set(semanticKey, nextPresets.length);
+            nextPresets.push(entry.preset);
+            continue;
+          }
+          if (strategy !== 'overwrite') continue;
+          const existing = nextPresets[existingIndex];
+          nextPresets[existingIndex] = {
+            ...entry.preset,
+            id: existing.id,
+            ...(existing.lastUsedAt === undefined ? {} : { lastUsedAt: existing.lastUsedAt }),
+          };
+        }
+        return { ...workspace, presets: nextPresets, updatedAt: now };
+      });
+
+      const nextCatalog = {
+        version: 1 as const,
+        activeWorkspaceId: state.activeWorkspaceId,
+        workspaces: nextWorkspaces,
+      };
+      if (copyCatalogSignature(nextCatalog) === copyCatalogSignature(catalog)) return { ok: true };
+      if (!(await persistWorkspaceCatalogAndWait(nextCatalog))) {
+        return { ok: false, error: 'The presets could not be copied into the Active Workspace.' };
+      }
+
+      const nextActiveWorkspace = nextWorkspaces.find((workspace) => workspace.id === state.activeWorkspaceId);
+      set({
+        workspaces: nextWorkspaces,
+        presets: nextActiveWorkspace?.presets ?? [],
+      });
       return { ok: true };
     },
 

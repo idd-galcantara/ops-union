@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { buildCopyPlan } from './presetCopy';
 import { createPreset } from './presets';
 import { buildTransferPlan, catalogForTransfer } from './presetTransfer';
 import { useOpsFlowStore } from './store';
@@ -480,6 +481,80 @@ test('overwrite replaces a destination semantic duplicate while keeping destinat
     assert.equal(nextDestination.name, sourcePreset.name);
     assert.equal(nextDestination.lastUsedAt, destinationPreset.lastUsedAt);
     assert.equal(useOpsFlowStore.getState().workspaces[0].presets[0].lastUsedAt, sourcePreset.lastUsedAt);
+  } finally {
+    if (previousLocalStorage === undefined) delete (globalThis as { localStorage?: unknown }).localStorage;
+    else (globalThis as { localStorage?: unknown }).localStorage = previousLocalStorage;
+    useOpsFlowStore.setState(original);
+  }
+});
+
+test('copies presets from an inactive source into the active Workspace without changing the live view', async () => {
+  const original = useOpsFlowStore.getState();
+  const sourcePreset = { ...createPreset('source', [{ cluster: 'c1', namespace: 'n1' }]), lastUsedAt: 20 };
+  const source = { id: 'source-workspace', name: 'Source', presets: [sourcePreset] };
+  const destinationPreset = createPreset('active', [{ cluster: 'live', namespace: 'namespace' }]);
+  const destination = { id: 'destination-workspace', name: 'Destination', presets: [destinationPreset] };
+  const targets = [{ cluster: 'live', namespace: 'namespace' }];
+  const pods = [{
+    cluster: 'live', namespace: 'namespace', name: 'pod', status: 'Running', ready: '1/1', restarts: 0,
+    node: 'node', ageSeconds: 10, containers: ['app'], application: { key: 'pod:pod', name: 'pod', source: 'pod' as const },
+  }];
+  const previousLocalStorage = (globalThis as { localStorage?: unknown }).localStorage;
+  let writes = 0;
+  (globalThis as { localStorage?: unknown }).localStorage = { setItem: () => { writes += 1; } };
+  useOpsFlowStore.setState({
+    workspaces: [source, destination],
+    activeWorkspaceId: destination.id,
+    presets: destination.presets,
+    activePresetId: destinationPreset.id,
+    activePresetDirty: true,
+    targets,
+    pods,
+    filter: 'pod',
+  });
+
+  try {
+    const state = useOpsFlowStore.getState();
+    const plan = buildCopyPlan(
+      { version: 1, workspaces: state.workspaces, activeWorkspaceId: state.activeWorkspaceId },
+      { sourceWorkspaceId: source.id, sourcePresetIds: [sourcePreset.id], destinationWorkspaceId: destination.id },
+      (portable) => ({ id: 'copied-id', ...portable }),
+    );
+    assert.deepEqual(await state.copyPresetsFromWorkspace(plan), { ok: true });
+    const next = useOpsFlowStore.getState();
+    assert.equal(writes, 1);
+    assert.deepEqual(next.workspaces[0].presets, source.presets);
+    assert.equal(next.workspaces[1].presets.some((preset) => preset.id === 'copied-id'), true);
+    assert.equal(next.activePresetId, destinationPreset.id);
+    assert.equal(next.activePresetDirty, true);
+    assert.deepEqual(next.targets, targets);
+    assert.deepEqual(next.pods, pods);
+    assert.equal(next.filter, 'pod');
+  } finally {
+    if (previousLocalStorage === undefined) delete (globalThis as { localStorage?: unknown }).localStorage;
+    else (globalThis as { localStorage?: unknown }).localStorage = previousLocalStorage;
+    useOpsFlowStore.setState(original);
+  }
+});
+
+test('a failed cross-Workspace copy leaves source and destination unchanged', async () => {
+  const original = useOpsFlowStore.getState();
+  const sourcePreset = createPreset('source', [{ cluster: 'c1', namespace: 'n1' }]);
+  const source = { id: 'source-workspace', name: 'Source', presets: [sourcePreset] };
+  const destination = { id: 'destination-workspace', name: 'Destination', presets: [] };
+  const previousLocalStorage = (globalThis as { localStorage?: unknown }).localStorage;
+  (globalThis as { localStorage?: unknown }).localStorage = { setItem: () => { throw new Error('storage full'); } };
+  useOpsFlowStore.setState({ workspaces: [source, destination], activeWorkspaceId: destination.id, presets: [] });
+
+  try {
+    const state = useOpsFlowStore.getState();
+    const plan = buildCopyPlan(
+      { version: 1, workspaces: state.workspaces, activeWorkspaceId: state.activeWorkspaceId },
+      { sourceWorkspaceId: source.id, sourcePresetIds: [sourcePreset.id], destinationWorkspaceId: destination.id },
+      (portable) => ({ id: 'copied-id', ...portable }),
+    );
+    assert.equal((await state.copyPresetsFromWorkspace(plan)).ok, false);
+    assert.deepEqual(useOpsFlowStore.getState().workspaces, [source, destination]);
   } finally {
     if (previousLocalStorage === undefined) delete (globalThis as { localStorage?: unknown }).localStorage;
     else (globalThis as { localStorage?: unknown }).localStorage = previousLocalStorage;

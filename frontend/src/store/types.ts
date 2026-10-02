@@ -17,6 +17,10 @@ import type {
   TransferConflictStrategy,
   TransferPlan,
 } from '../presetTransfer';
+import type {
+  CopyConflictStrategy,
+  CopyPlan,
+} from '../presetCopy';
 
 export interface WorkspaceImportOptions {
   overwrite?: boolean;
@@ -103,6 +107,7 @@ export interface OpsFlowState {
   deletePreset: (id: string) => void;
   deletePresets: (ids: string[], expectedWorkspaceId: string) => boolean;
   transferPresets: (plan: TransferPlan, strategy?: TransferConflictStrategy) => Promise<TransferResult>;
+  copyPresetsFromWorkspace: (plan: CopyPlan, strategy?: CopyConflictStrategy) => Promise<TransferResult>;
   appendImportedPresets: (presets: PortablePreset[]) => void;
   clearPresets: () => void;
 }

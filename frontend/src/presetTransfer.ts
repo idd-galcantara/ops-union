@@ -160,7 +160,7 @@ export function buildTransferPlan(
           destinationWorkspaceName: destination.name,
           conflictingPresetId: planned.sourcePresetId,
           targetKey,
-          message: `${preset.name} duplicates another selected preset in ${destination.name}.`,
+          message: `${preset.name} duplicates another selected preset with the same targets. Only one copy will be kept.`,
         });
       }
 

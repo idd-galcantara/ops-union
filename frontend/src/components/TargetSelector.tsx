@@ -32,6 +32,12 @@ import {
   type TransferMode,
   type TransferPlan,
 } from '../presetTransfer';
+import {
+  buildCopyPlan,
+  entriesForCopy,
+  type CopyConflictStrategy,
+  type CopyPlan,
+} from '../presetCopy';
 import { useOpsFlowStore } from '../store';
 import { targetKey, type NamespaceInfo } from '../types';
 import { MAX_WORKSPACE_IMPORT_BYTES, MAX_WORKSPACE_NAME_LENGTH, parseWorkspaceImportFile, validateWorkspaceName, type Workspace, type WorkspaceImportResult } from '../workspaces';
@@ -1440,6 +1446,7 @@ function PresetLibrary({
   const deletePresets = useOpsFlowStore((s) => s.deletePresets);
   const workspaces = useOpsFlowStore((s) => s.workspaces);
   const transferPresets = useOpsFlowStore((s) => s.transferPresets);
+  const copyPresetsFromWorkspace = useOpsFlowStore((s) => s.copyPresetsFromWorkspace);
   const [query, setQuery] = useState('');
   const [deleteIntent, setDeleteIntent] = useState<PresetDeleteIntent | null>(null);
   const [deletePending, setDeletePending] = useState(false);
@@ -1452,8 +1459,18 @@ function PresetLibrary({
   const [transferConfirmationOpen, setTransferConfirmationOpen] = useState(false);
   const [transferPending, setTransferPending] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
+  const [copySourceWorkspaceId, setCopySourceWorkspaceId] = useState<string | null>(null);
+  const [copyChooserOpen, setCopyChooserOpen] = useState(false);
+  const [copySelectedPresetIds, setCopySelectedPresetIds] = useState<Set<string>>(new Set());
+  const [copyStrategy, setCopyStrategy] = useState<CopyConflictStrategy>('reject');
+  const [copyConflictDecisionOpen, setCopyConflictDecisionOpen] = useState(false);
+  const [copyConfirmationOpen, setCopyConfirmationOpen] = useState(false);
+  const [copyPending, setCopyPending] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const transferTriggerRef = useRef<HTMLElement | null>(null);
-  const libraryBusy = Boolean(applyingPresetId) || deletePending || transferPending;
+  const copyTriggerRef = useRef<HTMLElement | null>(null);
+  const libraryBusy = Boolean(applyingPresetId) || deletePending || transferPending || copyPending;
   const libraryRef = useRef<HTMLElement>(null);
   const deleteTriggerRef = useRef<HTMLElement | null>(null);
   const visiblePresets = useMemo(() => filterPresets(presets, query), [presets, query]);
@@ -1474,6 +1491,19 @@ function PresetLibrary({
   const sourceWorkspace = workspaces.find((workspace) => workspace.id === activeWorkspaceId);
   const selectedPresets = presets.filter((preset) => selectedPresetIds.has(preset.id));
   const destinationWorkspaces = workspaces.filter((workspace) => workspace.id !== activeWorkspaceId);
+  const copySourceWorkspace = workspaces.find((workspace) => workspace.id === copySourceWorkspaceId);
+  const copySelectedPresets = copySourceWorkspace?.presets.filter((preset) => copySelectedPresetIds.has(preset.id)) ?? [];
+  const copyPlan = useMemo<CopyPlan | null>(() => {
+    if (!copySourceWorkspaceId || copySelectedPresetIds.size === 0) return null;
+    return buildCopyPlan(
+      catalogForTransfer(workspaces, activeWorkspaceId, presets),
+      {
+        sourceWorkspaceId: copySourceWorkspaceId,
+        sourcePresetIds: [...copySelectedPresetIds],
+        destinationWorkspaceId: activeWorkspaceId,
+      },
+    );
+  }, [activeWorkspaceId, copySelectedPresetIds, copySourceWorkspaceId, presets, workspaces]);
 
   useEffect(() => {
     setSelectedPresetIds((current) => {
@@ -1491,6 +1521,13 @@ function PresetLibrary({
     setTransferConflictDecisionOpen(false);
     setTransferConfirmationOpen(false);
     setTransferError(null);
+    setCopySourceWorkspaceId(null);
+    setCopyChooserOpen(false);
+    setCopySelectedPresetIds(new Set());
+    setCopyStrategy('reject');
+    setCopyConflictDecisionOpen(false);
+    setCopyConfirmationOpen(false);
+    setCopyError(null);
   }, [activeWorkspaceId]);
 
   useEffect(() => {
@@ -1529,6 +1566,55 @@ function PresetLibrary({
     setTransferConflictDecisionOpen(false);
     setTransferConfirmationOpen(false);
     setTransferError(null);
+  };
+
+  const beginCopy = (trigger: HTMLElement) => {
+    if (libraryBusy || workspaces.length < 2) return;
+    copyTriggerRef.current = trigger;
+    setCopyChooserOpen(true);
+    setCopySourceWorkspaceId(null);
+    setCopySelectedPresetIds(new Set());
+    setCopyStrategy('reject');
+    setCopyConflictDecisionOpen(false);
+    setCopyConfirmationOpen(false);
+    setCopyError(null);
+    setCopyMessage(null);
+  };
+
+  const reviewCopy = () => {
+    if (!copyPlan || copyPlan.entries.length === 0) return;
+    setCopyError(null);
+    if (copyPlan.conflicts.length > 0) {
+      setCopyConflictDecisionOpen(true);
+      return;
+    }
+    setCopyStrategy('reject');
+    setCopyConfirmationOpen(true);
+  };
+
+  const confirmCopy = async () => {
+    if (!copyPlan || copyPending) return;
+    setCopyPending(true);
+    setCopyError(null);
+    await Promise.resolve();
+    try {
+      const result = await copyPresetsFromWorkspace(copyPlan, copyStrategy);
+      if (!result.ok) {
+        setCopyError(result.error ?? 'The presets could not be copied.');
+        return;
+      }
+      setCopySelectedPresetIds(new Set());
+      setCopySourceWorkspaceId(null);
+      setCopyChooserOpen(false);
+      setCopyConfirmationOpen(false);
+      setCopyConflictDecisionOpen(false);
+      setCopyStrategy('reject');
+      setCopyMessage(`${entriesForCopy(copyPlan, copyStrategy).length} preset${entriesForCopy(copyPlan, copyStrategy).length === 1 ? '' : 's'} copied to ${workspaceName}.`);
+    } catch {
+      setCopyError('The presets could not be copied.');
+    } finally {
+      setCopyPending(false);
+    }
   };
 
   const reviewTransfer = () => {
@@ -1584,6 +1670,7 @@ function PresetLibrary({
         />
 
         {deleteError && <p className="preset-library-feedback is-error" role="alert">{deleteError}</p>}
+        {copyMessage && <p className="preset-library-status" role="status" aria-live="polite">{copyMessage}</p>}
 
         <div className="preset-library-toolbar">
           {presets.length > 0 && (
@@ -1671,6 +1758,18 @@ function PresetLibrary({
               </div>
             </div>
           )}
+
+          <div className="preset-library-cross-workspace-actions">
+            <button
+              type="button"
+              className="text-button preset-transfer-action"
+              onClick={(event) => beginCopy(event.currentTarget)}
+              disabled={libraryBusy || workspaces.length < 2}
+              title={workspaces.length < 2 ? 'Create another Workspace first' : 'Copy presets from another Workspace'}
+            >
+              <Layers size={12} /> Copy from Workspace
+            </button>
+          </div>
         </div>
 
         <div className="preset-library-list" role="group" aria-label="Saved presets">
@@ -1832,6 +1931,69 @@ function PresetLibrary({
             }}
             onConfirm={confirmTransfer}
             restoreFocusRef={transferTriggerRef}
+            fallbackFocusRef={libraryRef}
+          />
+        )}
+        {copyChooserOpen && (
+          <PresetCopyChooser
+            destinationWorkspace={workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null}
+            sourceWorkspaces={destinationWorkspaces}
+            sourceWorkspaceId={copySourceWorkspaceId}
+            selectedPresetIds={copySelectedPresetIds}
+            plan={copyPlan}
+            error={copyError}
+            pending={copyPending}
+            onSelectSource={(id) => {
+              if (copyPending) return;
+              setCopySourceWorkspaceId(id);
+              setCopySelectedPresetIds(new Set());
+              setCopyError(null);
+            }}
+            onTogglePreset={(id) => {
+              if (copyPending) return;
+              setCopySelectedPresetIds((current) => {
+                const next = new Set(current);
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+                return next;
+              });
+              setCopyError(null);
+            }}
+            onReview={reviewCopy}
+            onCancel={() => {
+              if (copyPending) return;
+              setCopyChooserOpen(false);
+              setCopySourceWorkspaceId(null);
+              setCopySelectedPresetIds(new Set());
+              setCopyError(null);
+            }}
+          />
+        )}
+        {copyConflictDecisionOpen && copyPlan && copySourceWorkspace && (
+          <PresetCopyConflictDecision
+            plan={copyPlan}
+            onCancel={() => setCopyConflictDecisionOpen(false)}
+            onChoose={(strategy) => {
+              setCopyStrategy(strategy);
+              setCopyConflictDecisionOpen(false);
+              setCopyConfirmationOpen(true);
+            }}
+          />
+        )}
+        {copyConfirmationOpen && copyPlan && copySourceWorkspace && (
+          <PresetCopyConfirmation
+            plan={copyPlan}
+            strategy={copyStrategy}
+            sourceWorkspace={copySourceWorkspace}
+            destinationWorkspace={workspaces.find((workspace) => workspace.id === activeWorkspaceId)!}
+            selectedPresets={copySelectedPresets}
+            pending={copyPending}
+            error={copyError}
+            onCancel={() => {
+              if (!copyPending) setCopyConfirmationOpen(false);
+            }}
+            onConfirm={confirmCopy}
+            restoreFocusRef={copyTriggerRef}
             fallbackFocusRef={libraryRef}
           />
         )}
@@ -2156,6 +2318,268 @@ function PresetTransferConfirmation({
           <button type="button" className="primary-button" onClick={() => void onConfirm()} disabled={pending}>
             {pending ? <Loader size={13} className="spinning" /> : <Check size={13} />}
             {pending ? 'Transferring...' : `Confirm ${plan.intent.mode}`}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function PresetCopyChooser({
+  destinationWorkspace,
+  sourceWorkspaces,
+  sourceWorkspaceId,
+  selectedPresetIds,
+  plan,
+  error,
+  pending,
+  onSelectSource,
+  onTogglePreset,
+  onReview,
+  onCancel,
+}: {
+  destinationWorkspace: Workspace | null;
+  sourceWorkspaces: Workspace[];
+  sourceWorkspaceId: string | null;
+  selectedPresetIds: Set<string>;
+  plan: CopyPlan | null;
+  error: string | null;
+  pending: boolean;
+  onSelectSource: (id: string) => void;
+  onTogglePreset: (id: string) => void;
+  onReview: () => void;
+  onCancel: () => void;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const [query, setQuery] = useState('');
+  const sourceWorkspace = sourceWorkspaces.find((workspace) => workspace.id === sourceWorkspaceId);
+  const visiblePresets = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    return (sourceWorkspace?.presets ?? []).filter((preset) => {
+      if (!needle) return true;
+      return [preset.name, preset.description ?? '', describePreset(preset)].join(' ').toLocaleLowerCase().includes(needle);
+    });
+  }, [query, sourceWorkspace]);
+
+  useEffect(() => {
+    dialogRef.current?.querySelector<HTMLElement>('button:not(:disabled), input:not(:disabled)')?.focus();
+  }, []);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!pending) onCancel();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])');
+    if (!focusable || focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  return (
+    <div className="preset-dialog-layer" onMouseDown={(event) => !pending && event.target === event.currentTarget && onCancel()}>
+      <section ref={dialogRef} className="preset-secondary-dialog preset-transfer-chooser" role="dialog" aria-modal="true" aria-labelledby="preset-copy-title" aria-busy={pending} tabIndex={-1} onKeyDown={handleKeyDown}>
+        <div className="preset-secondary-dialog-header">
+          <div><span className="eyebrow">Preset library</span><h3 id="preset-copy-title">Copy from another Workspace</h3></div>
+          <button type="button" className="icon-button subtle" onClick={onCancel} aria-label="Close preset copy" disabled={pending}><X size={15} /></button>
+        </div>
+        <p className="preset-dialog-summary">
+          Destination: <strong>{destinationWorkspace?.name ?? 'Active Workspace'}</strong>. Choose a source Workspace and the presets to copy.
+        </p>
+        <div className="preset-transfer-workspace-list" role="radiogroup" aria-label="Source Workspaces">
+          {sourceWorkspaces.map((workspace) => (
+            <label className={`preset-transfer-workspace ${workspace.id === sourceWorkspaceId ? 'is-selected' : ''}`} key={workspace.id}>
+              <input
+                type="radio"
+                name="preset-copy-source"
+                checked={workspace.id === sourceWorkspaceId}
+                onChange={() => onSelectSource(workspace.id)}
+                disabled={pending}
+                aria-label={`Select source Workspace ${workspace.name}`}
+              />
+              <span><strong>{workspace.name}</strong><small>{workspace.presets.length} preset{workspace.presets.length === 1 ? '' : 's'}</small></span>
+            </label>
+          ))}
+          {sourceWorkspaces.length === 0 && <p className="sidebar-hint">Create another Workspace before copying presets.</p>}
+        </div>
+        {sourceWorkspace && (
+          <>
+            <label className="preset-search preset-library-search">
+              <Search size={13} />
+              <span className="visually-hidden">Search source presets</span>
+              <input value={query} onChange={(event) => setQuery(event.target.value)} disabled={pending} placeholder="Search source presets..." />
+            </label>
+            <div className="preset-transfer-workspace-list" role="group" aria-label={`Presets in ${sourceWorkspace.name}`}>
+              {visiblePresets.map((preset) => (
+                <label className="preset-transfer-workspace" key={preset.id}>
+                  <input type="checkbox" checked={selectedPresetIds.has(preset.id)} onChange={() => onTogglePreset(preset.id)} disabled={pending} aria-label={`Select preset ${preset.name}`} />
+                  <span><strong>{preset.name}</strong><small>{describePreset(preset)}</small></span>
+                </label>
+              ))}
+              {sourceWorkspace.presets.length === 0 && <p className="sidebar-hint">This Workspace has no saved presets.</p>}
+              {sourceWorkspace.presets.length > 0 && visiblePresets.length === 0 && <p className="sidebar-hint">No source preset matches the search.</p>}
+            </div>
+          </>
+        )}
+        {plan && plan.conflicts.length > 0 && (
+          <div className="preset-transfer-conflict-summary" role="status">
+            <strong>{plan.conflicts.length} conflict{plan.conflicts.length === 1 ? '' : 's'} found.</strong>
+            <span>{entriesForCopy(plan, 'ignore').length} preset{entriesForCopy(plan, 'ignore').length === 1 ? '' : 's'} can be copied without replacing anything.</span>
+          </div>
+        )}
+        {error && <p className="preset-library-feedback is-error" role="alert" aria-live="polite">{error}</p>}
+        {plan && plan.conflicts.length === 0 && <p className="preset-library-status" role="status" aria-live="polite">{plan.entries.length} preset{plan.entries.length === 1 ? '' : 's'} ready for review.</p>}
+        <div className="preset-secondary-dialog-actions">
+          <button type="button" className="secondary-button" onClick={onCancel} disabled={pending}>Cancel</button>
+          <button type="button" className="primary-button" onClick={onReview} disabled={pending || !plan || plan.entries.length === 0}>
+            <Check size={13} /> {plan?.conflicts.length ? 'Review conflicts' : 'Review copy'}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function PresetCopyConflictDecision({
+  plan,
+  onCancel,
+  onChoose,
+}: {
+  plan: CopyPlan;
+  onCancel: () => void;
+  onChoose: (strategy: 'ignore' | 'overwrite') => void;
+}) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const copyable = entriesForCopy(plan, 'ignore');
+  const conflictMessages = plan.conflicts.map((conflict, index) => (
+    <li key={`${conflict.kind}-${conflict.sourcePresetId ?? 'catalog'}-${index}`}>{conflict.message}</li>
+  ));
+
+  useEffect(() => {
+    dialogRef.current?.querySelector<HTMLElement>('button:not(:disabled)')?.focus();
+  }, []);
+
+  return (
+    <div className="preset-dialog-layer" onMouseDown={(event) => event.target === event.currentTarget && onCancel()}>
+      <section ref={dialogRef} className="preset-secondary-dialog preset-transfer-conflict-dialog" role="dialog" aria-modal="true" aria-labelledby="preset-copy-conflict-title">
+        <div className="preset-secondary-dialog-header">
+          <div><span className="eyebrow">Review copy conflicts</span><h3 id="preset-copy-conflict-title">Choose how to continue</h3></div>
+          <button type="button" className="icon-button subtle" onClick={onCancel} aria-label="Cancel copy conflict decision"><X size={15} /></button>
+        </div>
+        <p className="preset-dialog-summary">{plan.conflicts.length} conflict{plan.conflicts.length === 1 ? '' : 's'} found. Choose how to handle them before copying.</p>
+        <div className="preset-transfer-conflict-options">
+          <button type="button" className="secondary-button" onClick={() => onChoose('ignore')}>
+            <span className="preset-transfer-conflict-option-title"><X size={13} /> <strong>Ignore conflicts</strong></span>
+            <small>Copy {copyable.length} preset{copyable.length === 1 ? '' : 's'} without replacing existing destination records.</small>
+          </button>
+          <button type="button" className="primary-button" onClick={() => onChoose('overwrite')}>
+            <span className="preset-transfer-conflict-option-title"><Check size={13} /> <strong>Overwrite conflicts</strong></span>
+            <small>Copy all {plan.entries.length} selected presets and replace matching destination records.</small>
+          </button>
+        </div>
+        <div className="preset-transfer-conflict-details">
+          <strong>Conflicting presets</strong>
+          <ul className="preset-transfer-conflict-list">{conflictMessages}</ul>
+        </div>
+        <div className="preset-secondary-dialog-actions"><button type="button" className="secondary-button" onClick={onCancel}>Cancel</button></div>
+      </section>
+    </div>
+  );
+}
+
+function PresetCopyConfirmation({
+  plan,
+  strategy,
+  sourceWorkspace,
+  destinationWorkspace,
+  selectedPresets,
+  pending,
+  error,
+  onCancel,
+  onConfirm,
+  restoreFocusRef,
+  fallbackFocusRef,
+}: {
+  plan: CopyPlan;
+  strategy: CopyConflictStrategy;
+  sourceWorkspace: Workspace;
+  destinationWorkspace: Workspace;
+  selectedPresets: Preset[];
+  pending: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onConfirm: () => void | Promise<void>;
+  restoreFocusRef: { current: HTMLElement | null };
+  fallbackFocusRef: { current: HTMLElement | null };
+}) {
+  const titleId = useId();
+  const descriptionId = useId();
+  const dialogRef = useRef<HTMLElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const effectiveEntries = entriesForCopy(plan, strategy);
+
+  useEffect(() => {
+    cancelRef.current?.focus();
+    return () => {
+      const trigger = restoreFocusRef.current;
+      const fallback = fallbackFocusRef.current;
+      if (trigger && document.contains(trigger)) trigger.focus();
+      else if (fallback && document.contains(fallback)) fallback.focus();
+    };
+  }, [fallbackFocusRef, restoreFocusRef]);
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!pending) onCancel();
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), [tabindex]:not([tabindex="-1"])');
+    if (!focusable || focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  return (
+    <div className="preset-dialog-layer destructive-confirmation-layer" onMouseDown={(event) => !pending && event.target === event.currentTarget && onCancel()}>
+      <section ref={dialogRef} className="preset-secondary-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} aria-busy={pending} tabIndex={-1} onKeyDown={handleKeyDown} onMouseDown={(event) => event.stopPropagation()}>
+        <div className="preset-secondary-dialog-header">
+          <div><span className="eyebrow">Review preset copy</span><h3 id={titleId}>Copy presets?</h3></div>
+          <button type="button" className="icon-button subtle" onClick={onCancel} aria-label="Cancel preset copy" disabled={pending}><X size={15} /></button>
+        </div>
+        <p className="preset-dialog-summary" id={descriptionId}>The source records will remain unchanged. The current view will stay as it is.</p>
+        <div className="destructive-confirmation-context">
+          <p><strong>Source:</strong> {sourceWorkspace.name}</p>
+          <p><strong>Destination:</strong> {destinationWorkspace.name}</p>
+          <p><strong>Presets:</strong> {effectiveEntries.length} of {plan.entries.length} will be copied</p>
+          {plan.conflicts.length > 0 && <p><strong>Conflicts:</strong> {plan.conflicts.length} ({strategy === 'overwrite' ? 'overwrite selected' : 'ignored'})</p>}
+          <ul>{selectedPresets.map((preset) => <li key={preset.id}>{preset.name}</li>)}</ul>
+        </div>
+        {error && <p className="preset-library-feedback is-error" role="alert" aria-live="polite">{error}</p>}
+        <div className="preset-secondary-dialog-actions">
+          <button ref={cancelRef} type="button" className="secondary-button" onClick={onCancel} disabled={pending}>Cancel</button>
+          <button type="button" className="primary-button" onClick={() => void onConfirm()} disabled={pending}>
+            {pending ? <Loader size={13} className="spinning" /> : <Check size={13} />}
+            {pending ? 'Copying...' : 'Confirm copy'}
           </button>
         </div>
       </section>

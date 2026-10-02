@@ -803,6 +803,13 @@
   white-space: nowrap;
 }
 
+.preset-library-cross-workspace-actions {
+  width: 100%;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
 .danger-text {
   color: var(--error-ink);
 }
