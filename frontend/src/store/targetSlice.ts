@@ -1,6 +1,6 @@
 import { fetchNamespaces } from '../api';
 import { targetKey } from '../types';
-import { invalidatePodsRequests, isCurrentNamespacesRequest, nextNamespacesRequestId } from './requestIds';
+import { invalidateNamespacesRequests, invalidatePodsRequests, isCurrentNamespacesRequest, nextNamespacesRequestId } from './requestIds';
 import type { StoreGet, StoreSet } from './types';
 import type { OpsFlowState } from './types';
 
@@ -79,9 +79,14 @@ export function createTargetActions(
     },
 
     clearTargets: () => {
+      invalidateNamespacesRequests();
       invalidatePodsRequests();
-      set({
+      set((state) => ({
         targets: [],
+        namespaces: [],
+        namespacesFor: [],
+        namespacesLoading: false,
+        namespacesError: undefined,
         activePresetId: null,
         activePresetDirty: false,
         pods: [],
@@ -91,7 +96,8 @@ export function createTargetActions(
         hasQueried: false,
         podsError: undefined,
         lastUpdatedAt: undefined,
-      });
+        configurationRevision: state.configurationRevision + 1,
+      }));
     },
   };
 }

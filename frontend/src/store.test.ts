@@ -55,6 +55,53 @@ test('savePreset rejects a duplicate name without changing the catalog', () => {
   }
 });
 
+test('applying a preset resets the target editor revision', () => {
+  const original = useOpsFlowStore.getState();
+  const preset = createPreset('Production', [{ cluster: 'prod', namespace: 'payments' }]);
+  useOpsFlowStore.setState({
+    presets: [preset],
+    targets: [{ cluster: 'stale', namespace: 'stale' }],
+    namespaces: [{ name: 'stale', clusters: ['stale'] }],
+    namespacesFor: ['stale'],
+    configurationRevision: 4,
+  });
+
+  try {
+    useOpsFlowStore.getState().applyPreset(preset.id);
+    const state = useOpsFlowStore.getState();
+    assert.deepEqual(state.targets, [{ cluster: 'prod', namespace: 'payments' }]);
+    assert.equal(state.configurationRevision, 5);
+    assert.equal(state.activePresetId, preset.id);
+  } finally {
+    useOpsFlowStore.setState(original);
+  }
+});
+
+test('clearing targets resets the target editor revision', () => {
+  const original = useOpsFlowStore.getState();
+  useOpsFlowStore.setState({
+    targets: [{ cluster: 'stale', namespace: 'stale' }],
+    namespaces: [{ name: 'stale', clusters: ['stale'] }],
+    namespacesFor: ['stale'],
+    namespacesLoading: true,
+    namespacesError: 'stale error',
+    configurationRevision: 4,
+  });
+
+  try {
+    useOpsFlowStore.getState().clearTargets();
+    const state = useOpsFlowStore.getState();
+    assert.deepEqual(state.targets, []);
+    assert.deepEqual(state.namespaces, []);
+    assert.deepEqual(state.namespacesFor, []);
+    assert.equal(state.namespacesLoading, false);
+    assert.equal(state.namespacesError, undefined);
+    assert.equal(state.configurationRevision, 5);
+  } finally {
+    useOpsFlowStore.setState(original);
+  }
+});
+
 test('appendImportedPresets persists fresh presets without changing view state', () => {
   const original = useOpsFlowStore.getState();
   const existing = createPreset('existing', [{ cluster: 'c1', namespace: 'n1' }]);

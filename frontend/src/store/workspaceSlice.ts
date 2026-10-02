@@ -322,6 +322,7 @@ export function createWorkspaceActions(
         targets: preset.targets.map((target) => ({ ...target })),
         activePresetId: id,
         activePresetDirty: false,
+        configurationRevision: state.configurationRevision + 1,
         pods: [],
         targetErrors: [],
         hasQueried: false,
