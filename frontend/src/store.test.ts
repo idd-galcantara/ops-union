@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildCopyPlan } from './presetCopy';
+import { buildMovePlan } from './presetMove';
 import { createPreset } from './presets';
 import { buildTransferPlan, catalogForTransfer } from './presetTransfer';
 import { useOpsFlowStore } from './store';
@@ -555,6 +556,127 @@ test('a failed cross-Workspace copy leaves source and destination unchanged', as
     );
     assert.equal((await state.copyPresetsFromWorkspace(plan)).ok, false);
     assert.deepEqual(useOpsFlowStore.getState().workspaces, [source, destination]);
+  } finally {
+    if (previousLocalStorage === undefined) delete (globalThis as { localStorage?: unknown }).localStorage;
+    else (globalThis as { localStorage?: unknown }).localStorage = previousLocalStorage;
+    useOpsFlowStore.setState(original);
+  }
+});
+
+test('cross-Workspace move commits destination and source changes once while preserving live state', async () => {
+  const original = useOpsFlowStore.getState();
+  const first = { ...createPreset('first', [{ cluster: 'c1', namespace: 'n1' }]), lastUsedAt: 10 };
+  const second = createPreset('second', [{ cluster: 'c2', namespace: 'n2' }]);
+  const active = { ...createPreset('active', [{ cluster: 'live', namespace: 'ns' }]), lastUsedAt: 20 };
+  const source = { id: 'move-source', name: 'Source', presets: [first, second] };
+  const destination = { id: 'move-destination', name: 'Destination', presets: [active] };
+  const targets = [{ cluster: 'live', namespace: 'ns' }];
+  const pods = [{
+    cluster: 'live', namespace: 'ns', name: 'pod', status: 'Running', ready: '1/1', restarts: 0,
+    node: 'node', ageSeconds: 10, containers: ['app'], application: { key: 'pod:pod', name: 'pod', source: 'pod' as const },
+  }];
+  const previousLocalStorage = (globalThis as { localStorage?: unknown }).localStorage;
+  let writes = 0;
+  (globalThis as { localStorage?: unknown }).localStorage = { setItem: () => { writes += 1; } };
+  useOpsFlowStore.setState({
+    workspaces: [source, destination],
+    activeWorkspaceId: destination.id,
+    presets: destination.presets,
+    activePresetId: active.id,
+    activePresetDirty: true,
+    targets,
+    pods,
+    filter: 'keep',
+    explicitQueryRevision: 4,
+  });
+
+  try {
+    const state = useOpsFlowStore.getState();
+    const plan = buildMovePlan(
+      { version: 1, workspaces: state.workspaces, activeWorkspaceId: state.activeWorkspaceId },
+      { sourceWorkspaceId: source.id, sourcePresetIds: [first.id, second.id], destinationWorkspaceId: destination.id, activePresetId: active.id },
+      (portable) => ({ id: `new-${portable.name}`, ...portable }),
+    );
+    assert.deepEqual(await state.movePresetsFromWorkspace(plan), { ok: true });
+    const next = useOpsFlowStore.getState();
+    assert.equal(writes, 1);
+    assert.deepEqual(next.workspaces[0].presets, []);
+    assert.deepEqual(next.workspaces[1].presets.map((preset) => preset.id), [active.id, 'new-first', 'new-second']);
+    assert.equal(next.activeWorkspaceId, destination.id);
+    assert.equal(next.activePresetId, active.id);
+    assert.equal(next.activePresetDirty, true);
+    assert.deepEqual(next.targets, targets);
+    assert.deepEqual(next.pods, pods);
+    assert.equal(next.filter, 'keep');
+    assert.equal(next.explicitQueryRevision, 4);
+  } finally {
+    if (previousLocalStorage === undefined) delete (globalThis as { localStorage?: unknown }).localStorage;
+    else (globalThis as { localStorage?: unknown }).localStorage = previousLocalStorage;
+    useOpsFlowStore.setState(original);
+  }
+});
+
+test('move Ignore retains conflicting source presets and Overwrite keeps destination identity', async () => {
+  const original = useOpsFlowStore.getState();
+  const blocked = createPreset('blocked', [{ cluster: 'c1', namespace: 'n1' }]);
+  const free = createPreset('free', [{ cluster: 'c2', namespace: 'n2' }]);
+  const existing = { ...createPreset('existing', blocked.targets), lastUsedAt: 44 };
+  const source = { id: 'move-source', name: 'Source', presets: [blocked, free] };
+  const destination = { id: 'move-destination', name: 'Destination', presets: [existing] };
+  const previousLocalStorage = (globalThis as { localStorage?: unknown }).localStorage;
+  let writes = 0;
+  (globalThis as { localStorage?: unknown }).localStorage = { setItem: () => { writes += 1; } };
+  useOpsFlowStore.setState({ workspaces: [source, destination], activeWorkspaceId: destination.id, presets: destination.presets });
+
+  try {
+    const state = useOpsFlowStore.getState();
+    const plan = buildMovePlan(
+      { version: 1, workspaces: state.workspaces, activeWorkspaceId: state.activeWorkspaceId },
+      { sourceWorkspaceId: source.id, sourcePresetIds: [blocked.id, free.id], destinationWorkspaceId: destination.id },
+      (portable) => ({ id: `fresh-${portable.name}`, ...portable }),
+    );
+    assert.deepEqual(await state.movePresetsFromWorkspace(plan, 'ignore'), { ok: true });
+    assert.equal(writes, 1);
+    assert.deepEqual(useOpsFlowStore.getState().workspaces[0].presets.map((preset) => preset.id), [blocked.id]);
+    assert.deepEqual(useOpsFlowStore.getState().workspaces[1].presets.map((preset) => preset.id), [existing.id, 'fresh-free']);
+
+    useOpsFlowStore.setState({ workspaces: [source, destination], activeWorkspaceId: destination.id, presets: destination.presets, activePresetId: existing.id });
+    const overwritePlan = buildMovePlan(
+      { version: 1, workspaces: [source, destination], activeWorkspaceId: destination.id },
+      { sourceWorkspaceId: source.id, sourcePresetIds: [blocked.id], destinationWorkspaceId: destination.id, activePresetId: existing.id },
+      (portable) => ({ id: 'source-id-must-not-win', ...portable }),
+    );
+    assert.deepEqual(await useOpsFlowStore.getState().movePresetsFromWorkspace(overwritePlan, 'overwrite'), { ok: true });
+    const overwritten = useOpsFlowStore.getState().workspaces[1].presets[0];
+    assert.equal(overwritten.id, existing.id);
+    assert.equal(overwritten.lastUsedAt, existing.lastUsedAt);
+    assert.equal(useOpsFlowStore.getState().activePresetId, existing.id);
+  } finally {
+    if (previousLocalStorage === undefined) delete (globalThis as { localStorage?: unknown }).localStorage;
+    else (globalThis as { localStorage?: unknown }).localStorage = previousLocalStorage;
+    useOpsFlowStore.setState(original);
+  }
+});
+
+test('a failed move persistence leaves both Workspaces and active state unchanged', async () => {
+  const original = useOpsFlowStore.getState();
+  const sourcePreset = createPreset('source', [{ cluster: 'c1', namespace: 'n1' }]);
+  const source = { id: 'move-source', name: 'Source', presets: [sourcePreset] };
+  const destination = { id: 'move-destination', name: 'Destination', presets: [] };
+  const previousLocalStorage = (globalThis as { localStorage?: unknown }).localStorage;
+  (globalThis as { localStorage?: unknown }).localStorage = { setItem: () => { throw new Error('storage full'); } };
+  useOpsFlowStore.setState({ workspaces: [source, destination], activeWorkspaceId: destination.id, presets: [], activePresetId: null, targets: [{ cluster: 'keep', namespace: 'state' }] });
+
+  try {
+    const plan = buildMovePlan(
+      { version: 1, workspaces: [source, destination], activeWorkspaceId: destination.id },
+      { sourceWorkspaceId: source.id, sourcePresetIds: [sourcePreset.id], destinationWorkspaceId: destination.id },
+      () => ({ id: 'fresh-move-id', name: sourcePreset.name, targets: sourcePreset.targets }),
+    );
+    assert.deepEqual(await useOpsFlowStore.getState().movePresetsFromWorkspace(plan), { ok: false, error: 'The presets could not be moved between Workspaces.' });
+    const next = useOpsFlowStore.getState();
+    assert.deepEqual(next.workspaces, [source, destination]);
+    assert.deepEqual(next.targets, [{ cluster: 'keep', namespace: 'state' }]);
   } finally {
     if (previousLocalStorage === undefined) delete (globalThis as { localStorage?: unknown }).localStorage;
     else (globalThis as { localStorage?: unknown }).localStorage = previousLocalStorage;
