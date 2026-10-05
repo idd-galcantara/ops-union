@@ -35,7 +35,8 @@
     "security:prepackage": "npm run validate:toolchain && npm run validate:dependencies && npm audit --omit=dev --audit-level=high && npm audit --audit-level=high && npm run typecheck && npm test --workspace=backend && npm test --workspace=frontend && npm run build"
   },
   "overrides": {
-    "ip-address": "10.7.2"
+    "ip-address": "10.7.2",
+    "http-cache-semantics": "4.3.0"
   },
   "devDependencies": {
     "electron-builder": "^26.15.3"
