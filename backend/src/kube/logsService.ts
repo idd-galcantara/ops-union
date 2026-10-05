@@ -2,6 +2,34 @@ import { PassThrough } from 'node:stream';
 import { logForContext } from './kubeconfig.js';
 import { safeErrorMessage } from './podsService.js';
 
+/**
+ * Minimal, injectable seam over `@kubernetes/client-node`'s `Log`. Returning a
+ * {@link LogStreamClient} lets tests drive post-open stream errors and the
+ * inactivity deadline without a live cluster. The real implementation is a thin
+ * adapter over the cached per-context `Log` client (read-only pod log endpoint).
+ */
+export interface KubeLogRequestOptions {
+  follow?: boolean;
+  tailLines?: number;
+  limitBytes?: number;
+  sinceTime?: string;
+  timestamps?: boolean;
+}
+
+export interface LogStreamClient {
+  log: (
+    namespace: string,
+    pod: string,
+    container: string,
+    stream: PassThrough,
+    options: KubeLogRequestOptions,
+  ) => Promise<AbortController>;
+}
+
+export type LogStreamClientFactory = (cluster: string) => LogStreamClient;
+
+const defaultLogClientFactory: LogStreamClientFactory = (cluster) => logForContext(cluster);
+
 export interface LogStreamOptions {
   cluster: string;
   namespace: string;
@@ -9,6 +37,14 @@ export interface LogStreamOptions {
   container: string;
   follow: boolean;
   tailLines?: number;
+  /**
+   * Optional follow-stream inactivity deadline (ms). When set, the stream is
+   * stopped cleanly if no data chunk arrives within the window. Default
+   * undefined preserves the current always-open follow behavior.
+   */
+  inactivityMs?: number;
+  /** Test seam: inject a fake log client. Defaults to the real per-context Log. */
+  logClientFactory?: LogStreamClientFactory;
 }
 
 export interface StructuredLogOptions extends LogStreamOptions {
@@ -137,16 +173,50 @@ export function streamPodLogs(
   const stream = new PassThrough();
   let buffer = '';
   let stopped = false;
+  let finished = false;
   let abort: AbortController | undefined;
+  let inactivityTimer: NodeJS.Timeout | undefined;
+
+  const clearInactivity = () => {
+    if (inactivityTimer) {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = undefined;
+    }
+  };
 
   const stop = () => {
     if (stopped) return;
     stopped = true;
+    clearInactivity();
     abort?.abort();
     stream.destroy();
   };
+  // Routes every terminal path (error / open-time catch / post-open reject)
+  // through onError exactly once; stop() prevents a late error after teardown.
+  const fail = (reason: unknown) => {
+    if (stopped || finished) return;
+    finished = true;
+    const message = safeErrorMessage(reason);
+    stop();
+    callbacks.onError(message);
+  };
+
+  const armInactivity = () => {
+    if (options.inactivityMs === undefined || !options.follow) return;
+    clearInactivity();
+    inactivityTimer = setTimeout(() => {
+      if (stopped || finished) return;
+      // Expiry is a clean end, not an error: stop upstream and report onEnd once.
+      finished = true;
+      stop();
+      callbacks.onEnd();
+    }, options.inactivityMs);
+    inactivityTimer.unref?.();
+  };
 
   stream.on('data', (chunk: Buffer) => {
+    if (stopped || finished) return;
+    armInactivity();
     buffer += chunk.toString('utf8');
     const lines = buffer.split('\n');
     // Keep the trailing partial line in the buffer until its newline arrives.
@@ -155,6 +225,9 @@ export function streamPodLogs(
   });
 
   stream.on('end', () => {
+    if (stopped || finished) return;
+    finished = true;
+    clearInactivity();
     if (buffer.length > 0) {
       callbacks.onLine(buffer);
       buffer = '';
@@ -163,10 +236,10 @@ export function streamPodLogs(
   });
 
   stream.on('error', (err: Error) => {
-    if (!stopped) callbacks.onError(safeErrorMessage(err));
+    fail(err);
   });
 
-  const log = logForContext(options.cluster);
+  const log = (options.logClientFactory ?? defaultLogClientFactory)(options.cluster);
   log
     .log(options.namespace, options.pod, options.container, stream, {
       follow: options.follow,
@@ -177,11 +250,12 @@ export function streamPodLogs(
       abort = controller;
       // The client may have disconnected while the request was being set up.
       if (stopped) controller.abort();
+      else armInactivity();
     })
     .catch((err: unknown) => {
       // Sanitize: the client's ApiException message embeds the raw body and all
       // response headers, which must never reach the browser.
-      callbacks.onError(safeErrorMessage(err));
+      fail(err);
     });
 
   return { stop };
@@ -197,18 +271,48 @@ export function streamStructuredPodLogs(
   let stopped = false;
   let completed = false;
   let abort: AbortController | undefined;
+  let inactivityTimer: NodeJS.Timeout | undefined;
+
+  const clearInactivity = () => {
+    if (inactivityTimer) {
+      clearTimeout(inactivityTimer);
+      inactivityTimer = undefined;
+    }
+  };
 
   const finish = (reason: 'eof' | 'to-reached' | 'limit' | 'cancelled') => {
     if (completed) return;
     completed = true;
+    clearInactivity();
     callbacks.onEnd(reason);
+  };
+  // Routes a stream/open error to onError at most once; after finish/error any
+  // later rejection is dropped so a single source cannot double-report.
+  const fail = (reason: unknown) => {
+    if (completed || stopped) return;
+    stopped = true;
+    clearInactivity();
+    completed = true;
+    callbacks.onError(safeErrorMessage(reason));
   };
   const stop = () => {
     if (stopped) return;
     stopped = true;
+    clearInactivity();
     abort?.abort();
     stream.destroy();
     finish('cancelled');
+  };
+  const armInactivity = () => {
+    if (options.inactivityMs === undefined || !options.follow) return;
+    clearInactivity();
+    inactivityTimer = setTimeout(() => {
+      if (stopped || completed) return;
+      // Expiry runs the normal stop cleanup and ends cleanly ('cancelled'),
+      // never throwing — the source simply stops without a protocol error.
+      stop();
+    }, options.inactivityMs);
+    inactivityTimer.unref?.();
   };
   const consumeLine = (line: string) => {
     const parsed = parseLogLine(line, options);
@@ -231,19 +335,20 @@ export function streamStructuredPodLogs(
     }
   };
   const handleParserError = (error: unknown): void => {
-    if (stopped) return;
-    stopped = true;
-    abort?.abort();
+    if (stopped || completed) return;
     if (error instanceof LogLineParserLimitError) {
+      stopped = true;
+      abort?.abort();
       callbacks.onLimit?.('record-size');
       finish('limit');
       return;
     }
-    callbacks.onError(safeErrorMessage(error));
+    fail(error);
   };
 
   stream.on('data', (chunk: Buffer) => {
-    if (stopped) return;
+    if (stopped || completed) return;
+    armInactivity();
     try {
       for (const line of parser.push(chunk)) {
         consumeLine(line);
@@ -254,7 +359,8 @@ export function streamStructuredPodLogs(
     }
   });
   stream.on('end', () => {
-    if (stopped) return;
+    if (stopped || completed) return;
+    clearInactivity();
     try {
       for (const line of parser.end()) consumeLine(line);
       if (!stopped) finish('eof');
@@ -263,13 +369,10 @@ export function streamStructuredPodLogs(
     }
   });
   stream.on('error', (err: Error) => {
-    if (!stopped) {
-      stopped = true;
-      callbacks.onError(safeErrorMessage(err));
-    }
+    fail(err);
   });
 
-  const log = logForContext(options.cluster);
+  const log = (options.logClientFactory ?? defaultLogClientFactory)(options.cluster);
   log
     .log(options.namespace, options.pod, options.container, stream, {
       follow: options.follow,
@@ -281,11 +384,10 @@ export function streamStructuredPodLogs(
     .then((controller) => {
       abort = controller;
       if (stopped) controller.abort();
+      else armInactivity();
     })
     .catch((err: unknown) => {
-      if (stopped) return;
-      stopped = true;
-      callbacks.onError(safeErrorMessage(err));
+      fail(err);
     });
 
   return { stop };

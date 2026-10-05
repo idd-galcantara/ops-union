@@ -2,6 +2,13 @@ import { createServer } from 'node:http';
 import { createApp } from './app.js';
 import { config } from './config.js';
 import { attachLogsWebSocket } from './logsWebSocket.js';
+import { registerProcessGuards } from './processGuards.js';
+
+// A single follow-stream error (or any in-flight runtime rejection) must not
+// crash the backend: killing the process is what cascaded into HTTP 502 on
+// describe/metrics through the Vite proxy. Log a sanitized report and stay up.
+// Startup/bind-fatal paths below still exit non-zero on their own.
+registerProcessGuards();
 
 const app = createApp({ frontendDist: config.frontendDist, internalToken: config.internalToken });
 const server = createServer(app);

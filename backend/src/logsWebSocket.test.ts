@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
 import { test } from 'node:test';
@@ -284,5 +285,56 @@ test('configured WebSocket policy rejects arbitrary origins and accepts the capa
   accepted.close();
   await new Promise<void>((resolve) => accepted.once('close', resolve));
   wss.close();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+});
+
+test('heartbeat terminates a socket that never pongs and cancels its subscription', async () => {
+  let stopCount = 0;
+  const manager = new HistorySessionManager({
+    streamFactory: (_options, _callbacks) => ({ stop: () => { stopCount += 1; } }),
+  });
+  const server = createServer();
+  const wss = attachLogsWebSocket(server, { historyManager: manager, heartbeatIntervalMs: 25 });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+
+  // Raw socket: completes the WS handshake, starts a history session, then goes
+  // silent — it never answers the server's ping, so the heartbeat must reap it.
+  const key = 'dGhlIHNhbXBsZSBub25jZQ==';
+  const accept = createHash('sha1').update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
+  const raw = connect(address.port, '127.0.0.1');
+  const handshaken = new Promise<void>((resolve, reject) => {
+    let buffer = '';
+    raw.on('data', (chunk) => {
+      buffer += chunk.toString('latin1');
+      if (buffer.includes('\r\n\r\n')) {
+        if (buffer.includes(`Sec-WebSocket-Accept: ${accept}`)) resolve();
+        else reject(new Error('handshake rejected'));
+      }
+    });
+    raw.on('error', reject);
+  });
+  raw.write(
+    `GET /api/logs HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n` +
+      `Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n\r\n`,
+  );
+  await handshaken;
+
+  // Send a masked history.start text frame so a subscription exists to cancel.
+  const payload = Buffer.from(JSON.stringify({ type: 'history.start', requestId: 'r1', generation: 1, sources: [source] }), 'utf8');
+  const mask = Buffer.from([0x01, 0x02, 0x03, 0x04]);
+  const masked = Buffer.from(payload);
+  for (let index = 0; index < masked.length; index += 1) masked[index] ^= mask[index % 4];
+  const header = Buffer.from([0x81, 0x80 | 126, (payload.length >> 8) & 0xff, payload.length & 0xff]);
+  raw.write(Buffer.concat([header, mask, masked]));
+
+  await new Promise<void>((resolve) => setTimeout(resolve, 150));
+  assert.ok(stopCount >= 1, 'the reaped socket should have stopped its upstream source');
+  assert.equal(wss.clients.size, 0);
+
+  raw.destroy();
+  wss.close();
+  manager.close();
   await new Promise<void>((resolve) => server.close(() => resolve()));
 });

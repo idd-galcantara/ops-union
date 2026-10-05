@@ -29,11 +29,47 @@ export interface WebSocketPolicy {
  * Uses `noServer` + manual upgrade handling so only this exact path is accepted;
  * any other upgrade attempt is rejected instead of silently held open.
  */
-export function attachLogsWebSocket(server: Server, options: { historyManager?: HistorySessionManager; policy?: WebSocketPolicy; isShuttingDown?: () => boolean } = {}): WebSocketServer {
+/** Default heartbeat cadence: ping idle sockets and reap any that miss a pong. */
+export const DEFAULT_HEARTBEAT_INTERVAL_MS = 30_000;
+
+export function attachLogsWebSocket(server: Server, options: { historyManager?: HistorySessionManager; policy?: WebSocketPolicy; isShuttingDown?: () => boolean; heartbeatIntervalMs?: number } = {}): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WEBSOCKET_PAYLOAD_BYTES });
   const historyManager = options.historyManager ?? new HistorySessionManager();
   const policy = options.policy ?? {};
+
+  // Heartbeat: a half-open socket (client gone, FIN never arrived) would hold its
+  // subscription and keep upstream follow streams open forever. Each interval we
+  // terminate sockets that missed the previous pong — terminate() fires 'close',
+  // which runs the socket's cancelOwnedSession() teardown — and ping the rest.
+  const heartbeatIntervalMs = options.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS;
+  const aliveSockets = new WeakSet<WebSocket>();
+  const markAlive = (ws: WebSocket) => {
+    aliveSockets.add(ws);
+    ws.on('pong', () => aliveSockets.add(ws));
+  };
+  const heartbeat = heartbeatIntervalMs > 0
+    ? setInterval(() => {
+        for (const ws of wss.clients) {
+          if (!aliveSockets.has(ws)) {
+            ws.terminate();
+            continue;
+          }
+          aliveSockets.delete(ws);
+          try {
+            ws.ping();
+          } catch {
+            ws.terminate();
+          }
+        }
+      }, heartbeatIntervalMs)
+    : undefined;
+  heartbeat?.unref?.();
+  wss.on('close', () => {
+    if (heartbeat) clearInterval(heartbeat);
+  });
+
   server.once('close', () => {
+    if (heartbeat) clearInterval(heartbeat);
     for (const client of wss.clients) client.close();
     wss.close();
     historyManager.close();
@@ -75,7 +111,10 @@ export function attachLogsWebSocket(server: Server, options: { historyManager?: 
       return;
     }
     if (url.pathname === AGGREGATE_LOGS_PATH) {
-      wss.handleUpgrade(request, socket, head, (ws) => handleAggregateLogSocket(ws, historyManager));
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        markAlive(ws);
+        handleAggregateLogSocket(ws, historyManager);
+      });
       return;
     }
     const match = LOGS_PATH.exec(url.pathname);
@@ -91,14 +130,17 @@ export function attachLogsWebSocket(server: Server, options: { historyManager?: 
       const namespace = decodeURIComponent(match[2]);
       const pod = decodeURIComponent(match[3]);
       if ([cluster, namespace, pod].some((value) => !value || value.length > MAX_KUBERNETES_IDENTIFIER_LENGTH)) throw new Error('invalid path');
-      wss.handleUpgrade(request, socket, head, (ws) => handleLogSocket(ws, {
-        cluster,
-        namespace,
-        pod,
-        container: url.searchParams.get('container') ?? '',
-        follow: url.searchParams.get('follow') !== 'false',
-        tailLines: normalizeTailLines(url.searchParams.get('tailLines')),
-      }));
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        markAlive(ws);
+        handleLogSocket(ws, {
+          cluster,
+          namespace,
+          pod,
+          container: url.searchParams.get('container') ?? '',
+          follow: url.searchParams.get('follow') !== 'false',
+          tailLines: normalizeTailLines(url.searchParams.get('tailLines')),
+        });
+      });
     } catch {
       socket.write('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
       socket.destroy();

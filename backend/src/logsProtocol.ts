@@ -16,6 +16,11 @@ export const MAX_LOG_LIMITS: LogLimits = {
 };
 
 export const MAX_LOG_SOURCES = 50;
+/** Per-connection cap on live follow streams; aligned with MAX_LOG_SOURCES. */
+export const MAX_LIVE_STREAMS_PER_CONNECTION = MAX_LOG_SOURCES;
+/** In-flight decoded-byte backpressure caps for the live aggregate path (mirror DEFAULT_HISTORY_LIMITS). */
+export const MAX_LIVE_INFLIGHT_BYTES_PER_SOURCE = 4 * 1024 * 1024;
+export const MAX_LIVE_INFLIGHT_BYTES_PER_SESSION = 32 * 1024 * 1024;
 export const MAX_HISTORY_REQUEST_ID_LENGTH = 128;
 export const MAX_HISTORY_CURSOR_SOURCE_KEY_LENGTH = 256;
 export const MAX_HISTORY_GENERATION = 2_147_483_647;
