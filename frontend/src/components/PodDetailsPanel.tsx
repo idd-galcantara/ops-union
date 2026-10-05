@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Activity, FileText, Info, ScrollText, X } from 'lucide-react';
-import { fetchPodDescribe, fetchPodMetrics } from '../api';
+import { backendUnavailableMessage, fetchPodDescribe, fetchPodMetrics, isBackendUnavailable } from '../api';
 import { formatCpu, formatMemory, formatTimestamp, usageRatio } from '../k8sUnits';
 import { terminationEntryDetails, terminationEntryTitle } from '../terminationHistory';
 import {
@@ -186,6 +186,7 @@ function LogSourceSummary({ sources, onChange }: { sources: LogSource[]; onChang
 }
 
 function messageOf(reason: unknown): string {
+  if (isBackendUnavailable(reason)) return backendUnavailableMessage();
   return reason instanceof Error ? reason.message : 'Failed to load.';
 }
 

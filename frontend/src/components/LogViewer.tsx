@@ -6,6 +6,7 @@ import { LOG_PERIODS, resolveLogRange } from '../logsRange';
 import { consumeLogSearchJumpRequest, createLogSearchOperationSnapshot, logSearchOperationComplete, shouldConsumeLogSearchJumpRequest, type LogSearchState } from '../logsSearch';
 import { DEFAULT_LOG_DISPLAY_STATE, logRecordKey, setWrapLines, type LogGrouping } from '../logsPresentation';
 import { createLiveSessionController, type LiveAggregateLogEvent } from '../logsLiveSession';
+import { createReconnectPolicy, shouldReconnect, type ReconnectPolicy } from '../logsReconnect';
 import { createHistoryController, type HistoryQueryRuntime, type HistoryQueryState, type HistoryRuntime } from '../logsHistoryController';
 import { useLogSearchController } from '../useLogSearchController';
 import { addHistoryQueryWindow, addHistoryWindow, CLIENT_LOG_BUFFER, createHistoryQueryWindowCache, createHistoryWindowCache, filterLogRecords, historyQueryRecordAt, historyRecordToEvent, HISTORY_WINDOW_LIMIT, historyRecordsFromCache, logFilterValues, sourceLabel, sourcesForPods, type HistoryQueryWindowCache, type HistoryQueryWindowRequest, type HistoryWindowCache, type HistoryWindowRequest, type LogRecordFilters } from '../logsSession';
@@ -14,6 +15,15 @@ import type { AggregateLogEvent, HistoryAggregateProgress, HistoryQueryFilters, 
 import { emptyMessage, FilterSelect, formatBytes, formatRange, historyStatusLabel, LogRow, LogRowPlaceholder, stateLabel, type LogConnectionState, type LogHistoryStatus } from './LogViewerParts';
 
 const DEFAULT_LIMITS: LogLimits = { maxLinesPerSource: 2_000, maxBytesPerSource: 2 * 1024 * 1024, maxLinesTotal: 10_000, maxBytesTotal: 10 * 1024 * 1024 };
+/**
+ * LLR-5: a Live session has reached a terminal state (so an unexpected socket
+ * drop must NOT trigger a reconnect) only when it ended or errored. A 'partial'
+ * session is still streaming its healthy sources, so it stays reconnectable;
+ * genuine completion is signalled separately by a summary reason.
+ */
+function liveStateIsTerminal(state: LogConnectionState): boolean {
+  return state === 'ended' || state === 'error';
+}
 interface HistoryViewState {
   identity?: HistorySessionIdentity;
   status: LogHistoryStatus;
@@ -57,6 +67,8 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
   const summaryRef = useRef<SummaryReason | undefined>(undefined);
   const pausedRef = useRef(paused);
   const acceptedLimitsRef = useRef(acceptedLimits);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   pausedRef.current = paused;
   eventsRef.current = events;
   acceptedLimitsRef.current = acceptedLimits;
@@ -76,6 +88,12 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
   const requestIdRef = useRef(0);
   const historyTailPendingRef = useRef(false);
   const historyTailRevealRef = useRef(false);
+  // LLR-5: automatic reconnection for unexpected LIVE aggregate-WS drops.
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const intentionalCloseRef = useRef(false);
+  const reconnectPolicyRef = useRef<ReconnectPolicy>(createReconnectPolicy());
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const prevReconnectAttemptRef = useRef(0);
   const selectedSources = availableSources;
   const {
     setSearch,
@@ -133,8 +151,14 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
     const sessionSources = sessionSnapshot.sources;
     let historyTerminalSeen = false;
     let historyQueryReadySeen = false;
+    // LLR-5: a reconnect re-runs this effect (bumping reconnectAttempt) but must
+    // keep already-rendered Live lines. Any other dependency change is a fresh
+    // session and resets the backoff schedule.
+    const isReconnect = reconnectAttempt !== prevReconnectAttemptRef.current && sessionValues.mode === 'live';
+    prevReconnectAttemptRef.current = reconnectAttempt;
+    if (!isReconnect) reconnectPolicyRef.current.reset();
     const preserveHistoryBoundary = sessionValues.mode === 'live' && transitioningFromHistoryRef.current;
-    if (!preserveHistoryBoundary) {
+    if (!preserveHistoryBoundary && !isReconnect) {
       setEvents([]);
       setHistoryState(undefined);
       setHistoryWindows(createHistoryWindowCache());
@@ -147,7 +171,7 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
     }
     setSourceStates(new Map());
     sourceStatesRef.current = new Map();
-    eventsRef.current = preserveHistoryBoundary ? events : [];
+    eventsRef.current = preserveHistoryBoundary || isReconnect ? events : [];
     setSummaryReason(undefined);
     summaryRef.current = undefined;
     if (!operation && appliedRangeResult.error) {
@@ -160,9 +184,12 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
       return;
     }
     let active = true;
+    // LLR-5: this socket is being opened intentionally; only an unexpected drop
+    // after this point should trigger a reconnect.
+    intentionalCloseRef.current = false;
     const socket = new WebSocket(aggregateLogsUrl());
     historySocketRef.current = socket;
-    setState(sessionValues.mode === 'history' ? 'history-starting' : preserveHistoryBoundary ? 'transitioning' : 'connecting');
+    setState(sessionValues.mode === 'history' ? 'history-starting' : preserveHistoryBoundary ? 'transitioning' : isReconnect ? 'reconnecting' : 'connecting');
     const historyController = createHistoryController({
       socket,
       historyRuntime: historyRuntimeRef.current,
@@ -211,6 +238,9 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
       if (sessionValues.mode === 'history') {
         socket.send(serializeHistoryStart({ requestId: `history-${++requestIdRef.current}`, generation: ++requestGenerationRef.current, ...sessionRange, sources: sessionSources }));
       } else {
+        // LLR-5: a successful (re)open resumes the current Live params; clear the
+        // backoff schedule so a later unexpected drop starts fresh.
+        reconnectPolicyRef.current.reset();
         liveSessionController.subscribe();
       }
     };
@@ -342,10 +372,34 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
       }
       liveSessionController.handle(event as LiveAggregateLogEvent);
     };
+    // LLR-5: a terminal Live session (summary/error) must not be reconnected.
+    const liveSessionTerminal = () => summaryRef.current !== undefined || liveStateIsTerminal(stateRef.current);
+    // Schedule a bounded-backoff reopen for an unexpected LIVE drop. Returns true
+    // when a reconnect was scheduled, false when the drop is intentional,
+    // terminal, or the backoff budget is exhausted.
+    const scheduleLiveReconnect = (): boolean => {
+      if (sessionValues.mode !== 'live') return false;
+      if (!shouldReconnect({ intentionalClose: intentionalCloseRef.current, terminal: liveSessionTerminal() })) return false;
+      const delay = reconnectPolicyRef.current.nextDelay();
+      if (delay === null) {
+        setError('Could not connect to the aggregate log stream.');
+        setState('error');
+        return false;
+      }
+      setState('reconnecting');
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = undefined;
+        // Re-run the session effect against the current (unchanged) Live params.
+        setReconnectAttempt((attempt) => attempt + 1);
+      }, delay);
+      return true;
+    };
     socket.onerror = () => {
       if (active) {
         if (failPendingWindows('Could not load the historical window.')) return;
         if (failPendingQueryWindows('Could not load the historical query window.')) return;
+        if (scheduleLiveReconnect()) return;
         setError('Could not connect to the aggregate log stream.');
         finishSearchOperation(operationId);
         if (transitioningFromHistoryRef.current) setHistoryState((current) => current ? { ...current, status: 'transition-failed' } : current);
@@ -356,6 +410,7 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
       if (active) {
         if (failPendingWindows('The history connection closed while loading a window.')) return;
         if (failPendingQueryWindows('The history connection closed while loading a query window.')) return;
+        if (scheduleLiveReconnect()) return;
         finishSearchOperation(operationId);
         if (transitioningFromHistoryRef.current) setHistoryState((current) => current ? { ...current, status: 'transition-failed' } : current);
         setState((current) => current === 'error' || current === 'partial' || summaryRef.current ? current : 'ended');
@@ -363,9 +418,21 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
     };
     return () => {
       active = false;
+      // LLR-5: React tears the socket down for a reason the user triggered
+      // (param/Search change, History switch, close/unmount) or for a scheduled
+      // reconnect re-run. In every case the imminent socket close is intentional,
+      // so flag it; the next session body resets the flag before opening.
+      intentionalCloseRef.current = true;
       if (sessionValues.mode === 'history') {
         const identity = historyRuntimeRef.current.identity;
         if (identity && socket.readyState === WebSocket.OPEN) socket.send(serializeHistoryCancel({ ...identity, reason: 'session-replaced' }));
+      }
+      // A pending reconnect timer that has not yet fired belongs to the session
+      // being torn down; cancel it. The timer clears its own ref before bumping
+      // reconnectAttempt, so a reconnect-driven re-run finds nothing to cancel.
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = undefined;
       }
       socket.close();
       liveSessionAcceptedRef.current = false;
@@ -373,7 +440,16 @@ export function LogViewer({ pod, pods, sources, consultedContexts, onChangeSourc
       historyQueryStartRef.current = undefined;
       if (historySocketRef.current === socket) historySocketRef.current = undefined;
     };
-  }, [applied.follow, applied.mode, applied.period, appliedRangeResult, selectedSources, sessionAttempt]);
+  }, [applied.follow, applied.mode, applied.period, appliedRangeResult, selectedSources, sessionAttempt, reconnectAttempt]);
+
+  // LLR-5: on unmount, cancel any pending reconnect timer so a dropped Live
+  // session does not try to reopen after the viewer is gone.
+  useEffect(() => () => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = undefined;
+    }
+  }, []);
 
   useEffect(() => {
     virtualizer.measure();

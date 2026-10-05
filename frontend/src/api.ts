@@ -12,6 +12,35 @@ import type {
   HistoryWindowEvent,
 } from './types';
 
+/**
+ * Actionable, secret-free message shown when the local backend cannot be
+ * reached (process down, connection refused) or is returning gateway errors
+ * (HTTP 502 through the Vite proxy). Presentation-only (LLR-6).
+ */
+export function backendUnavailableMessage(): string {
+  return 'The local backend is unavailable. It may have stopped or restarted — reconnect once it is running again.';
+}
+
+/**
+ * Distinguished error for the backend-unavailable failure class so callers and
+ * presenters can show {@link backendUnavailableMessage} instead of a raw
+ * 'HTTP 502' or a transport-level fetch rejection.
+ */
+export class BackendUnavailableError extends Error {
+  readonly kind = 'backend-unavailable' as const;
+  constructor(message: string = backendUnavailableMessage()) {
+    super(message);
+    this.name = 'BackendUnavailableError';
+  }
+}
+
+/** True when a reason is (or should be presented as) a backend-unavailable failure. */
+export function isBackendUnavailable(reason: unknown): boolean {
+  if (reason instanceof BackendUnavailableError) return true;
+  // A fetch to a dead/refused local backend rejects with a TypeError and no Response.
+  return reason instanceof TypeError;
+}
+
 /** Reads safe metadata about the active kubeconfig. */
 export async function fetchKubeConfigStatus(): Promise<KubeConfigStatus> {
   const res = await fetch('/api/kubeconfig/status');
@@ -21,6 +50,8 @@ export async function fetchKubeConfigStatus(): Promise<KubeConfigStatus> {
 
 /** Extracts a readable message from a non-OK response. */
 async function errorFrom(res: Response): Promise<Error> {
+  // A 502 through the Vite proxy means the local backend dropped the connection.
+  if (res.status === 502) return new BackendUnavailableError();
   try {
     const body = (await res.json()) as { error?: string };
     if (body.error) return new Error(body.error);
