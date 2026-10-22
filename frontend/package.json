@@ -11,7 +11,7 @@
     "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
-    "@tanstack/react-virtual": "^3.14.17",
+    "@tanstack/react-virtual": "^3.14.21",
     "lucide-react": "^1.59.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
