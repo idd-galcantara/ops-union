@@ -14,7 +14,7 @@
     "@tanstack/react-virtual": "^3.14.21",
     "lucide-react": "^1.59.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react-dom": "^19.3.1",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
