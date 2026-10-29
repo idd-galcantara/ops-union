@@ -39,6 +39,6 @@
     "http-cache-semantics": "4.3.0"
   },
   "devDependencies": {
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.18.0"
   }
 }
