@@ -560,7 +560,7 @@ ops-union/
 │           ├── logsService.ts
 │           ├── normalizePod.ts
 │           ├── parseTargets.ts
-│           └── caChain.ts         # Cadeia TLS completa
+│           └── partialCaTrust.ts  # CA do kubeconfig como trust anchor TLS
 ├── frontend/
 │   └── src/
 │       ├── App.tsx                # Shell, health check e layout

@@ -361,7 +361,7 @@ The audited client operations are list/read/metrics/log operations only:
 - `Metrics.getPodMetrics`
 - `Log.log`
 
-No Kubernetes mutation method was found in the audited backend or operational source paths. Context scoping clones kubeconfig entries and sets a specific context for each client; it does not mutate a shared current context. TLS verification remains enabled while the CA chain is completed from the kubeconfig and system roots. A live authorization review was not performed.
+No Kubernetes mutation method was found in the audited backend or operational source paths. Context scoping clones kubeconfig entries and sets a specific context for each client; it does not mutate a shared current context. TLS verification remains enabled, with the CA explicitly supplied by kubeconfig treated as a partial trust anchor. A live authorization review was not performed.
 
 ### Storage and persistence
 

@@ -177,15 +177,17 @@ embora o `kubectl` funcionasse com o mesmo kubeconfig. Causa raiz:
 - O `@kubernetes/client-node` monta seu agente HTTPS a partir do `caData` apenas, então
   a cadeia ficava incompleta e o handshake falhava.
 
-**Solução aplicada** (`backend/src/kube/caChain.ts`): compor a cadeia completa concatenando
-a CA do kubeconfig com o bundle de CAs do sistema, e injetá-la no cluster carregado antes
-de criar o client.
+**Solução aplicada** (`backend/src/kube/partialCaTrust.ts`): tratar a CA explicitamente
+configurada no kubeconfig como âncora de confiança parcial do Node.js. O `allowPartialTrustChain`
+permite encerrar a validação nessa CA intermediária, sem depender de ela ou de seus emissores
+estarem instalados no trust store do sistema.
 
 Importante:
 - A **verificação TLS permanece totalmente ativa** — não usamos `skipTLSVerify` nem
   `NODE_TLS_REJECT_UNAUTHORIZED`.
-- O trust store do sistema é apenas **lido**; nada no ambiente do usuário é alterado.
-- Se nenhum bundle do sistema for legível, a CA do kubeconfig é usada como está.
+- Somente a CA já fornecida pelo kubeconfig é usada como âncora; a validação de hostname e
+  assinatura do certificado do servidor continua ativa.
+- O trust store do sistema não é necessário nem alterado.
 
 ## Nota de ambiente: sidecars nativos (Istio)
 

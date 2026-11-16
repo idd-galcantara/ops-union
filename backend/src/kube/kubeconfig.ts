@@ -7,7 +7,7 @@ import {
   Log,
   Metrics,
 } from '@kubernetes/client-node';
-import { buildFullCaChain } from './caChain.js';
+import { PartialCaTrustKubeConfig } from './partialCaTrust.js';
 import {
   loadKubeConfig,
   resolveKubeConfigLocation,
@@ -122,7 +122,7 @@ export function scopedConfigForContext(context: string): KubeConfig {
     throw new Error(`Unknown context: ${context}`);
   }
 
-  const scoped = new KubeConfig();
+  const scoped = new PartialCaTrustKubeConfig();
   scoped.loadFromOptions({
     clusters: kc.clusters.map((cluster) => ({ ...cluster })),
     users: kc.users.map((user) => ({ ...user })),
@@ -130,7 +130,6 @@ export function scopedConfigForContext(context: string): KubeConfig {
     currentContext: context,
   });
   scoped.setCurrentContext(context);
-  completeCaChain(scoped, context);
   scopedConfigCache.set(context, scoped);
   return scoped;
 }
@@ -196,36 +195,6 @@ export function logForContext(context: string): Log {
   const log = new Log(scopedConfigForContext(context));
   logCache.set(context, log);
   return log;
-}
-
-/**
- * Ensures the scoped config carries a *complete* CA chain for its current cluster.
- *
- * The kubeconfig here only embeds the intermediate CA, while its issuers live in
- * the OS trust store. `@kubernetes/client-node` builds its HTTPS agent solely
- * from `caData`, so without this the TLS handshake fails with
- * UNABLE_TO_GET_ISSUER_CERT. TLS verification remains fully enabled.
- */
-export function completeCaChain(scoped: KubeConfig, context: string): void {
-  const cluster = scoped.getCurrentCluster();
-  if (!cluster?.caData) return;
-
-  const kubeconfigCa = Buffer.from(cluster.caData as string, 'base64').toString('utf8');
-  const fullChain = buildFullCaChain(kubeconfigCa);
-  if (fullChain === kubeconfigCa) return;
-
-  const patchedClusters = scoped.clusters.map((c) =>
-    c.name === cluster.name
-      ? { ...c, caData: Buffer.from(fullChain, 'utf8').toString('base64'), caFile: undefined }
-      : c,
-  );
-
-  scoped.loadFromOptions({
-    clusters: patchedClusters,
-    users: scoped.users,
-    contexts: scoped.contexts,
-    currentContext: context,
-  });
 }
 
 /**
